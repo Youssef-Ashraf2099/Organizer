@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+  }
+  /* Force class transparency as backup */
+  .bn-editor, 
+  .bn-container,
+  .mantine-Paper-root {
+    background-color: transparent !important;
+  }
+  
+  /* Print Styling for PDF Export */
+  @media print {
+    /* Hide sidebar, headers, and UI controls */
+    aside, nav, button, input[type="text"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    
+    /* Reset background for paper printing */
+    body, #root, .h-full, .flex {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        height: auto !important;
+        overflow: visible !important;
+        display: block !important;
+    }
+
+    /* Target the editor content */
+    .bn-editor {
+        padding: 0 !important;
+        margin: 0 !important;
+        color: #000000 !important;
+    }
+    
+    /* Ensure dark text on white paper */
+    .bn-block-content {
+        color: #000000 !important;
+    }
+    
+    /* Hide the parent layout flex containers which might restrict height */
+    div[class*="flex"] {
+        display: block !important;
+    }
+    
+    /* Specifically hide the Sidebar container if it has a specific class or check structure... 
+       Actually, standard 'aside' might not catch my div sidebar. 
+       I will check Sidebar.tsx to ensure it can be targeted or assume layout structure.
+       Better: Add a 'no-print' class to sidebar container. 
+    */
+    .no-print {
+        display: none !important;
+    }
+    
+    .print-only {
+        display: block !important;
+    }
+  }
+  
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent native scroll */
+  }
+
+  
+  /* Also optional: unify side menu colors if needed */
+}
