@@ -1,11 +1,20 @@
 import { PartialBlock } from "@blocknote/core";
 
+type TemplateBlock = Omit<PartialBlock, "type" | "props" | "content"> & {
+  // Allow custom blocks we register in the editor
+  type?: PartialBlock["type"] | "chart" | "mermaid" | "kanban";
+  // Permit arbitrary props needed by custom blocks
+  props?: PartialBlock["props"] | Record<string, unknown>;
+  // Keep content flexible for nested custom shapes
+  content?: PartialBlock["content"] | Array<Record<string, unknown>>;
+};
+
 export interface Template {
   id: string;
   name: string;
   description: string;
   icon: string | null;
-  content: PartialBlock[];
+  content: TemplateBlock[];
   is_builtin: boolean;
 }
 
@@ -367,7 +376,7 @@ export const builtinTemplates: Template[] = [
           {
             type: "text",
             text: "Finished task",
-            styles: { strikethrough: true },
+            styles: { italic: true },
           },
         ],
       },
@@ -750,7 +759,7 @@ export const builtinTemplates: Template[] = [
           {
             type: "text",
             text: "Finished Book",
-            styles: { strikethrough: true },
+            styles: { italic: true },
           },
           { type: "text", text: " - Rating: ⭐⭐⭐⭐⭐", styles: {} },
         ],
@@ -1173,7 +1182,7 @@ export const builtinTemplates: Template[] = [
           {
             type: "text",
             text: "Achieved goal",
-            styles: { strikethrough: true },
+            styles: { italic: true },
           },
         ],
       },

@@ -20,8 +20,6 @@ export const TemplateManager = ({ isOpen, onClose }: TemplateManagerProps) => {
   } = useTemplateStore();
   const { addPage, setActivePage, loadTree } = usePageStore();
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [templateName, setTemplateName] = useState("");
-  const [templateDescription, setTemplateDescription] = useState("");
 
   useEffect(() => {
     if (isOpen) {

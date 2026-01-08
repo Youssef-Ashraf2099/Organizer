@@ -37,22 +37,25 @@ export const KanbanBlock = createReactBlockSpec(
   {
     type: "kanban",
     propSchema: {
-      board: { default: defaultBoard },
+      board: { default: defaultBoard as any },
       scale: { default: 100 },
     },
     content: "none",
   },
   {
     render: (props) => {
-      const board = props.block.props.board as BoardProps;
-      const scale = props.block.props.scale as number;
+      const board =
+        (props.block.props.board as unknown as BoardProps) ?? defaultBoard;
+      const scale = Number(props.block.props.scale ?? 100);
       const [dragCard, setDragCard] = useState<{
         from: string;
         card: Card;
       } | null>(null);
 
       const updateBoard = (next: BoardProps) => {
-        props.editor.updateBlock(props.block, { props: { board: next } });
+        props.editor.updateBlock(props.block, {
+          props: { board: next as any },
+        });
       };
 
       const addCard = (columnId: string) => {
@@ -121,7 +124,7 @@ export const KanbanBlock = createReactBlockSpec(
                 value={scale}
                 onChange={(e) =>
                   props.editor.updateBlock(props.block, {
-                    props: { scale: Number(e.target.value) },
+                    props: { scale: Number(e.target.value) as any },
                   })
                 }
                 className="w-24"

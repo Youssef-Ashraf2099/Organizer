@@ -6,7 +6,7 @@ import { FaExpand } from "@react-icons/all-files/fa/FaExpand";
 import { FaCompress } from "@react-icons/all-files/fa/FaCompress";
 import { FaCrop } from "@react-icons/all-files/fa/FaCrop";
 import Cropper from "react-easy-crop";
-import type { Area } from "react-easy-crop/types";
+import type { Area } from "react-easy-crop";
 import "react-easy-crop/react-easy-crop.css";
 
 export const ImageBlock = createReactBlockSpec(
@@ -40,7 +40,9 @@ export const ImageBlock = createReactBlockSpec(
       const [showCrop, setShowCrop] = useState(false);
       const [crop, setCrop] = useState({ x: 0, y: 0 });
       const [zoom, setZoom] = useState(1);
-      const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+      const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(
+        null
+      );
       const imageRef = useRef<HTMLImageElement>(null);
 
       // Load image URL
@@ -65,7 +67,10 @@ export const ImageBlock = createReactBlockSpec(
       const handleDelete = async () => {
         if (props.block.props.assetId && props.block.props.filePath) {
           try {
-            await deleteAsset(props.block.props.assetId, props.block.props.filePath);
+            await deleteAsset(
+              props.block.props.assetId,
+              props.block.props.filePath
+            );
             props.editor.removeBlocks([props.block]);
           } catch (error) {
             console.error("Failed to delete image:", error);
@@ -81,7 +86,7 @@ export const ImageBlock = createReactBlockSpec(
         });
       };
 
-      const onCropComplete = useCallback((croppedArea: Area, croppedAreaPixels: Area) => {
+      const onCropComplete = useCallback((_: Area, croppedAreaPixels: Area) => {
         setCroppedAreaPixels(croppedAreaPixels);
       }, []);
 
@@ -93,7 +98,10 @@ export const ImageBlock = createReactBlockSpec(
           image.src = url;
         });
 
-      const getCroppedImg = async (imageSrc: string, pixelCrop: Area): Promise<string> => {
+      const getCroppedImg = async (
+        imageSrc: string,
+        pixelCrop: Area
+      ): Promise<string> => {
         const image = await createImage(imageSrc);
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
@@ -101,9 +109,6 @@ export const ImageBlock = createReactBlockSpec(
         if (!ctx) {
           throw new Error("No 2d context");
         }
-
-        const maxSize = Math.max(image.width, image.height);
-        const safeArea = 2 * ((maxSize / 2) * Math.sqrt(2));
 
         canvas.width = pixelCrop.width;
         canvas.height = pixelCrop.height;
@@ -134,7 +139,10 @@ export const ImageBlock = createReactBlockSpec(
         if (!imageUrl || !croppedAreaPixels) return;
 
         try {
-          const croppedImageUrl = await getCroppedImg(imageUrl, croppedAreaPixels);
+          const croppedImageUrl = await getCroppedImg(
+            imageUrl,
+            croppedAreaPixels
+          );
           setImageUrl(croppedImageUrl);
           setShowCrop(false);
           setCrop({ x: 0, y: 0 });
@@ -187,7 +195,7 @@ export const ImageBlock = createReactBlockSpec(
                   height: "auto",
                 }}
               />
-              
+
               {showControls && (
                 <div className="absolute top-2 right-2 flex gap-2 bg-zinc-900/80 rounded-md p-1">
                   <button
@@ -228,7 +236,7 @@ export const ImageBlock = createReactBlockSpec(
               )}
             </div>
           </div>
-          
+
           {showControls && (
             <div className="mt-2 flex justify-center gap-2">
               <input
@@ -245,7 +253,7 @@ export const ImageBlock = createReactBlockSpec(
               </span>
             </div>
           )}
-          
+
           {isExpanded && (
             <div
               className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
@@ -324,4 +332,3 @@ export const ImageBlock = createReactBlockSpec(
     },
   }
 );
-
