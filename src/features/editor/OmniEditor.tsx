@@ -17,10 +17,16 @@ import { MathBlock } from "./MathBlock";
 import { ImageBlock } from "./ImageBlock";
 import { VideoBlock } from "./VideoBlock";
 import { PdfBlock } from "./PdfBlock";
+import { MermaidBlock } from "./MermaidBlock";
+import { ChartBlock } from "./ChartBlock";
+import { KanbanBlock } from "./KanbanBlock";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
 import { FaFilePdf } from "@react-icons/all-files/fa/FaFilePdf";
+import { FaProjectDiagram } from "@react-icons/all-files/fa/FaProjectDiagram";
+import { FaChartBar } from "@react-icons/all-files/fa/FaChartBar";
+import { FaTasks } from "@react-icons/all-files/fa/FaTasks";
 import { FaSave } from "@react-icons/all-files/fa/FaSave";
 import { uploadFileFromPicker } from "../../core/services/fileService";
 import { useTemplateStore } from "../../core/store/templateStore";
@@ -165,6 +171,9 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
             image: ImageBlock(),
             video: VideoBlock(),
             pdf: PdfBlock(),
+            mermaid: MermaidBlock(),
+            chart: ChartBlock(),
+            kanban: KanbanBlock(),
           },
         });
 
@@ -414,6 +423,60 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
                   group: "Other",
                   icon: <FaCalculator />,
                   subtext: "Insert a LaTeX math block",
+                },
+                {
+                  title: "Mermaid Diagram",
+                  onItemClick: () => {
+                    editor.insertBlocks(
+                      [
+                        {
+                          type: "mermaid",
+                        },
+                      ],
+                      editor.getTextCursorPosition().block,
+                      "after"
+                    );
+                  },
+                  aliases: ["flowchart", "diagram", "architecture", "erd"],
+                  group: "Visuals",
+                  icon: <FaProjectDiagram />,
+                  subtext: "Insert a Mermaid diagram (flowchart, sequence, ER)",
+                },
+                {
+                  title: "Chart",
+                  onItemClick: () => {
+                    editor.insertBlocks(
+                      [
+                        {
+                          type: "chart",
+                        },
+                      ],
+                      editor.getTextCursorPosition().block,
+                      "after"
+                    );
+                  },
+                  aliases: ["bar", "line", "pie", "graph"],
+                  group: "Visuals",
+                  icon: <FaChartBar />,
+                  subtext: "Insert a chart (bar, line, pie)",
+                },
+                {
+                  title: "Kanban Board",
+                  onItemClick: () => {
+                    editor.insertBlocks(
+                      [
+                        {
+                          type: "kanban",
+                        },
+                      ],
+                      editor.getTextCursorPosition().block,
+                      "after"
+                    );
+                  },
+                  aliases: ["task", "board", "jira", "trello"],
+                  group: "Productivity",
+                  icon: <FaTasks />,
+                  subtext: "Task management board",
                 },
                 {
                   title: "Image",
