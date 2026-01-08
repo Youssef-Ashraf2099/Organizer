@@ -233,13 +233,19 @@ export const OmniEditor = ({
         editor.insertBlocks(blocks, targetBlock, "after");
       } else {
         // If no target block exists (empty doc), just add as first block
-        editor.insertBlocks(blocks);
+        editor.insertBlocks(blocks, editor.document[0], "before");
       }
 
       // Move cursor after inserted blocks
       const lastBlock = editor.document[editor.document.length - 1];
       if (lastBlock) {
-        editor.setTextCursorPosition({ block: lastBlock.id, offset: 0 });
+        // Cursor positioning - optional, not critical for animation
+        try {
+          editor.setTextCursorPosition(lastBlock, "start");
+        } catch (e) {
+          // Cursor positioning failed, but animation still works
+          console.debug("Cursor positioning skipped");
+        }
       }
 
       // Apply typing animation to newly inserted blocks
