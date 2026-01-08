@@ -38,6 +38,7 @@ export const AgentPanel = ({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [customPrompt, setCustomPrompt] = useState("");
   const [autoInsert, setAutoInsert] = useState(true);
+  const [pdfText, setPdfText] = useState<string>("");
 
   // Auto-insert responses into the page when enabled
   useEffect(() => {
@@ -58,16 +59,15 @@ export const AgentPanel = ({
     setIsLoadingPDF(true);
     try {
       const text = await extractTextFromPDF(file);
-      // Update selected text for visibility
-      setSelectedText(text.slice(0, 5000));
-      const summarizeAction = actions.find((a) => a.id === "summarize");
-      if (summarizeAction) {
-        await onExecuteAction(
-          "summarize",
-          text.slice(0, 5000),
-          text.slice(0, 5000)
-        );
-      }
+      // Store PDF text for custom prompt use
+      setPdfText(text);
+      // Show a preview in selected text
+      setSelectedText(
+        `📄 PDF loaded: ${file.name} (${text.length} chars)\n\n${text.slice(
+          0,
+          200
+        )}...`
+      );
     } catch (error) {
       alert(
         `Failed to process PDF: ${
@@ -284,10 +284,10 @@ export const AgentPanel = ({
                   onClick={() =>
                     onExecuteAction(
                       "custom_prompt",
-                      // Treat the user's prompt as the main query
+                      // User's prompt as the query
                       customPrompt,
-                      // Use selected text (or prompt) as context if nothing is selected
-                      state.selectedText || customPrompt
+                      // Use PDF if available, otherwise selected text or prompt
+                      pdfText || state.selectedText || customPrompt
                     )
                   }
                   className="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
