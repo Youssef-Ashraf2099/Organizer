@@ -38,14 +38,16 @@ const AUTOSAVE_DELAY = 1000;
 interface OmniEditorProps {
   onUpload?: (file: File) => Promise<string>;
   onAISuggest?: (context: string) => Promise<string>;
+  onSelectText?: (text: string) => void;
 }
 
-export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
+export const OmniEditor = ({ onUpload, onAISuggest, onSelectText }: OmniEditorProps) => {
   // Dormant hooks stub - logging to satisfy linter until implemented
   useEffect(() => {
     if (onUpload) console.debug("Upload handler registered");
     if (onAISuggest) console.debug("AI handler registered");
-  }, [onUpload, onAISuggest]);
+    if (onSelectText) console.debug("Text selection handler registered");
+  }, [onUpload, onAISuggest, onSelectText]);
 
   const activePageId = usePageStore((s) => s.activePageId);
   const updatePageTitle = usePageStore((s) => s.updatePageTitle);
@@ -200,6 +202,32 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
     }
   };
 
+  // Handle AI response insertion
+  useEffect(() => {
+    const handleInsertAI = (event: Event) => {
+      const customEvent = event as CustomEvent<{ response: string }>;
+      const { response } = customEvent.detail;
+      
+      if (editor && response) {
+        editor.insertBlocks(
+          [
+            {
+              type: "paragraph",
+              props: {
+                textContent: response,
+              },
+            },
+          ],
+          editor.getTextCursorPosition().block,
+          "after"
+        );
+      }
+    };
+
+    window.addEventListener('insertAIResponse', handleInsertAI);
+    return () => window.removeEventListener('insertAIResponse', handleInsertAI);
+  }, [editor]);
+
   // Handle file upload
   const handleFileUpload = async (fileType: "image" | "video" | "pdf") => {
     if (!editor || !activePageId) return;
@@ -279,6 +307,12 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
 
   const handleMouseUp = () => {
     setIsSelecting(false);
+
+    // Check if text was selected and trigger AI panel
+    const selectedText = window.getSelection()?.toString().trim();
+    if (selectedText && onSelectText) {
+      onSelectText(selectedText);
+    }
   };
 
   // Handle Title Change? BlockNote doesn't manage page title.
@@ -376,6 +410,17 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
           onChange={(e) => updatePageTitle(activePageId, e.target.value)}
         />
         <div className="flex gap-2">
+          <button
+            onClick={() => {
+              const selection = window.getSelection()?.toString() || '';
+              // Always open panel, even without selected text
+              onSelectText?.(selection);
+            }}
+            className="p-2 text-zinc-400 hover:text-zinc-100 bg-blue-800 rounded-md text-sm hover:bg-blue-700 transition flex items-center gap-1"
+            title="Open AI Assistant"
+          >
+            ✨ AI
+          </button>
           <button
             onClick={() => setShowSaveTemplateDialog(true)}
             className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition flex items-center gap-1"
