@@ -7,68 +7,170 @@
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
   }
+
+  /* Scrollbar Styling */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #09090b;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #27272a;
+    border-radius: 5px;
+    transition: background 0.3s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3f3f46;
+  }
+
+  /* Firefox Scrollbar */
+  * {
+    scrollbar-color: #27272a #09090b;
+    scrollbar-width: thin;
+  }
+
+  /* BlockNote Suggestion Menu (Slash Menu) Fix */
+  .mantine-Menu-dropdown {
+    max-height: 400px !important;
+    overflow-y: auto !important;
+  }
+
+  .bn-suggestion-menu {
+    max-height: 400px !important;
+    overflow-y: auto !important;
+  }
+
+  /* Custom Cursor Effect */
+  * {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='3' fill='%233b82f6'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%233b82f6' stroke-width='1' opacity='0.3'/%3E%3C/svg%3E")
+        16 16,
+      auto;
+  }
+
+  /* Hide default cursor */
+  body {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='3' fill='%233b82f6'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%233b82f6' stroke-width='1' opacity='0.3'/%3E%3C/svg%3E")
+        16 16,
+      auto;
+  }
+
+  /* Cursor trail effect - toned down */
+  .cursor-trail {
+    position: fixed;
+    pointer-events: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #60a5fa;
+    box-shadow: 0 0 6px rgba(96, 165, 250, 0.4);
+    transform: translate(-3px, -3px);
+    z-index: 9999;
+  }
+
+  @keyframes fadeOut {
+    from {
+      opacity: 0.6;
+      transform: translate(-3px, -3px) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translate(-3px, -3px) scale(0.3);
+    }
+  }
+
+  .cursor-trail.fade {
+    animation: fadeOut 0.5s ease-out forwards;
+  }
+
+  /* Glow effect on hover - subtle */
+  button:hover {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='4' fill='%2360a5fa'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2360a5fa' stroke-width='1' opacity='0.4'/%3E%3C/svg%3E")
+        16 16,
+      auto;
+  }
+
+  /* Text selection cursor */
+  input:focus,
+  textarea:focus {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='14' y='2' width='4' height='28' fill='%2360a5fa' rx='2'/%3E%3C/svg%3E")
+        16 16,
+      text;
+  }
+
   /* Force class transparency as backup */
-  .bn-editor, 
+  .bn-editor,
   .bn-container,
   .mantine-Paper-root {
     background-color: transparent !important;
   }
-  
+
   /* Print Styling for PDF Export */
   @media print {
     /* Hide sidebar, headers, and UI controls */
-    aside, nav, button, input[type="text"] {
-        display: none !important;
-        visibility: hidden !important;
+    aside,
+    nav,
+    button,
+    input[type="text"] {
+      display: none !important;
+      visibility: hidden !important;
     }
-    
+
     /* Reset background for paper printing */
-    body, #root, .h-full, .flex {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        height: auto !important;
-        overflow: visible !important;
-        display: block !important;
+    body,
+    #root,
+    .h-full,
+    .flex {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      height: auto !important;
+      overflow: visible !important;
+      display: block !important;
     }
 
     /* Target the editor content */
     .bn-editor {
-        padding: 0 !important;
-        margin: 0 !important;
-        color: #000000 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      color: #000000 !important;
     }
-    
+
     /* Ensure dark text on white paper */
     .bn-block-content {
-        color: #000000 !important;
+      color: #000000 !important;
     }
-    
+
     /* Hide the parent layout flex containers which might restrict height */
     div[class*="flex"] {
-        display: block !important;
+      display: block !important;
     }
-    
+
     /* Specifically hide the Sidebar container if it has a specific class or check structure... 
        Actually, standard 'aside' might not catch my div sidebar. 
        I will check Sidebar.tsx to ensure it can be targeted or assume layout structure.
        Better: Add a 'no-print' class to sidebar container. 
     */
     .no-print {
-        display: none !important;
+      display: none !important;
     }
-    
+
     .print-only {
-        display: block !important;
+      display: block !important;
     }
   }
-  
-  html, body, #root {
+
+  html,
+  body,
+  #root {
     height: 100%;
     margin: 0;
     padding: 0;
     overflow: hidden; /* Prevent native scroll */
   }
 
-  
   /* Also optional: unify side menu colors if needed */
 }
