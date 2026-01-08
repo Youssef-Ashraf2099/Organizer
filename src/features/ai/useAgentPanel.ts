@@ -1,12 +1,12 @@
-import { useState, useCallback, useEffect } from 'react';
-import { aiService } from './aiService';
-import { AIAction, AgentPanelState } from './types';
+import { useState, useCallback, useEffect } from "react";
+import { aiService } from "./aiService";
+import { AIAction, AgentPanelState } from "./types";
 
 const initialState: AgentPanelState = {
   isOpen: false,
   isLoading: false,
-  selectedText: '',
-  response: '',
+  selectedText: "",
+  response: "",
 };
 
 export const useAgentPanel = () => {
@@ -36,17 +36,17 @@ export const useAgentPanel = () => {
   }, []);
 
   const openPanel = useCallback((selectedText: string) => {
-    setState(prev => ({
+    setState((prev) => ({
       ...prev,
       isOpen: true,
       selectedText,
-      response: '',
+      response: "",
       error: undefined,
     }));
   }, []);
 
   const closePanel = useCallback(() => {
-    setState(prev => ({
+    setState((prev) => ({
       ...prev,
       isOpen: false,
       selectedAction: undefined,
@@ -54,8 +54,13 @@ export const useAgentPanel = () => {
   }, []);
 
   const executeAction = useCallback(
-    async (pageId: string, actionId: string, selectionOverride?: string, pageContext?: string) => {
-      setState(prev => ({ ...prev, isLoading: true, error: undefined }));
+    async (
+      pageId: string,
+      actionId: string,
+      selectionOverride?: string,
+      pageContext?: string
+    ) => {
+      setState((prev) => ({ ...prev, isLoading: true, error: undefined }));
 
       try {
         const response = await aiService.executeAction(
@@ -65,17 +70,18 @@ export const useAgentPanel = () => {
           pageContext
         );
 
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           isLoading: false,
           response,
           selectedAction: actionId,
         }));
       } catch (error) {
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           isLoading: false,
-          error: error instanceof Error ? error.message : 'Failed to execute action',
+          error:
+            error instanceof Error ? error.message : "Failed to execute action",
         }));
       }
     },
@@ -83,7 +89,7 @@ export const useAgentPanel = () => {
   );
 
   const setSelectedText = useCallback((text: string) => {
-    setState(prev => ({ ...prev, selectedText: text }));
+    setState((prev) => ({ ...prev, selectedText: text }));
   }, []);
 
   return {

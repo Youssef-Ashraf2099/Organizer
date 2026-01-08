@@ -3,7 +3,9 @@
 ## ✅ What's Been Implemented
 
 ### Backend (Rust) - Complete
+
 1. **Ollama Client** (`src-tauri/src/ai/ollama.rs`)
+
    - HTTP client for local LLM inference
    - Health checks and model listing
    - Generate (non-streaming) responses
@@ -11,11 +13,13 @@
    - Default: `llama3.2:3b` (3B parameters, fast)
 
 2. **RAG Engine** (`src-tauri/src/ai/rag.rs`)
+
    - Context prompt builder from page content
    - Prepares structured prompts for LLM
    - Future: Full semantic search with embeddings
 
 3. **Edit Operations** (`src-tauri/src/ai/operations.rs`)
+
    - 9 predefined AI actions (slash commands)
    - Insert/Replace/Delete/UpdatePage operations
    - Actions: Summarize, Rewrite, Expand, Explain, Outline, Tasks, Diagram, Table, Grammar
@@ -28,20 +32,25 @@
    - `ai_get_state()` - Current AI state
 
 ### Frontend (React) - Complete
+
 1. **Types** (`src/features/ai/types.ts`)
+
    - AIAction, EditOperation, AgentPanelState
 
 2. **Service** (`src/features/ai/aiService.ts`)
+
    - Wrapper for Tauri commands
    - Health check, model listing, action execution
 
 3. **Hook** (`src/features/ai/useAgentPanel.ts`)
+
    - State management for AI panel
    - Periodic health checks (every 10s)
    - Action execution with loading state
    - Error handling
 
 4. **UI Component** (`src/features/ai/AgentPanel.tsx`)
+
    - Full-screen slide-up panel
    - 9 action buttons (2x grid layout)
    - Status indicator (Ollama connected/offline)
@@ -49,6 +58,7 @@
    - Close on Escape key
 
 5. **Integration** (`src/components/layout/AppLayout.tsx`)
+
    - Panel added to main layout
    - Text selection triggers panel open
    - Pass selected text to AI service
@@ -60,6 +70,7 @@
 ## 🚀 How to Use
 
 ### Prerequisites
+
 1. **Install Ollama** from https://ollama.ai (one-time)
 2. **Pull a model:**
    ```bash
@@ -72,15 +83,19 @@
    ```
 
 ### Workflow
+
 1. **Select Text** in editor
+
    - Triple-click or drag to select text
    - Selected text automatically triggers AI panel
 
 2. **Choose Action**
+
    - Click action button (Summarize, Rewrite, etc.)
    - AI streams response
 
 3. **Copy Result**
+
    - Copy response to clipboard
    - Paste into editor or elsewhere
 
@@ -90,17 +105,17 @@
 
 ## 📋 Predefined AI Actions
 
-| Action | Icon | Description |
-|--------|------|-------------|
-| **Summarize** | 📝 | Create concise 2-3 sentence summary |
-| **Rewrite** | ✏️ | Make more professional & concise |
-| **Expand** | 📖 | Add detail, examples, depth |
-| **Explain** | ❓ | Detailed explanation for beginners |
-| **Generate Outline** | 📋 | Create hierarchical structure (markdown) |
-| **Generate Tasks** | ✅ | Extract action items with checkboxes |
-| **Generate Diagram** | 📊 | Auto-create Mermaid diagram code |
-| **Generate Table** | 📈 | Convert content to markdown table |
-| **Check Grammar** | ✓ | Fix grammar, spelling, clarity |
+| Action               | Icon | Description                              |
+| -------------------- | ---- | ---------------------------------------- |
+| **Summarize**        | 📝   | Create concise 2-3 sentence summary      |
+| **Rewrite**          | ✏️   | Make more professional & concise         |
+| **Expand**           | 📖   | Add detail, examples, depth              |
+| **Explain**          | ❓   | Detailed explanation for beginners       |
+| **Generate Outline** | 📋   | Create hierarchical structure (markdown) |
+| **Generate Tasks**   | ✅   | Extract action items with checkboxes     |
+| **Generate Diagram** | 📊   | Auto-create Mermaid diagram code         |
+| **Generate Table**   | 📈   | Convert content to markdown table        |
+| **Check Grammar**    | ✓    | Fix grammar, spelling, clarity           |
 
 ## 🔧 Architecture
 
@@ -155,7 +170,9 @@
 ## ⚙️ Configuration
 
 ### Model Selection
+
 Edit `src-tauri/src/lib.rs` line ~260:
+
 ```rust
 pub struct AiState {
     pub model: String,  // Change from "llama3.2:3b" to other model
@@ -163,14 +180,18 @@ pub struct AiState {
 ```
 
 ### Ollama URL
+
 In `src/features/ai/aiService.ts`, model is hardcoded but can be parameterized:
+
 ```typescript
 // Currently: localhost:11434 (default Ollama port)
 // To change: Update OllamaClient::new() call
 ```
 
 ### Temperature & Tokens
+
 In `useAgentPanel.ts` `executeAction()`:
+
 ```typescript
 const response = await aiService.executeAction(
   pageId,
@@ -196,21 +217,25 @@ const response = await aiService.executeAction(
 ## 🐛 Troubleshooting
 
 ### "Ollama offline" red dot
+
 - Ensure Ollama is running: `ollama serve`
 - Check port: `curl http://localhost:11434/api/tags`
 - Health check runs every 10 seconds
 
 ### "Failed to execute action" error
+
 - Check Ollama process is running
 - Check model exists: `ollama list`
 - Check console for error details
 
 ### Slow responses
+
 - Model too large for hardware
 - Try smaller model: `ollama pull llama3.2:3b` (1.3GB)
 - Currently set to 3B, reduce to 1B if needed
 
 ### App crashes on text selection
+
 - Check browser console for JS errors
 - Ensure OmniEditor receives `onSelectText` prop
 - Verify Tauri commands registered in `lib.rs`
@@ -218,17 +243,19 @@ const response = await aiService.executeAction(
 ## 📚 Related Files
 
 **Rust Backend:**
+
 - Dependencies: `src-tauri/Cargo.toml` (reqwest, tokio, thiserror)
 - AI Module: `src-tauri/src/ai/`
-- Commands: `src-tauri/src/lib.rs` (ai_* functions)
+- Commands: `src-tauri/src/lib.rs` (ai\_\* functions)
 
 **React Frontend:**
+
 - AI Features: `src/features/ai/`
 - Integration: `src/components/layout/AppLayout.tsx`
 - Editor: `src/features/editor/OmniEditor.tsx`
 
 **Database:**
+
 - Schema: `src-tauri/src/database/schema.rs`
 - Tables: pages, blocks, chunks (ready for RAG)
 - FTS5: Full-text search for fast retrieval
-

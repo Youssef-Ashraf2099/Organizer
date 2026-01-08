@@ -7,7 +7,7 @@ export interface AIAction {
 }
 
 export interface EditOperation {
-  op_type: 'insert' | 'replace' | 'delete' | 'updatePage';
+  op_type: "insert" | "replace" | "delete" | "updatePage";
   page_id: string;
   block_id?: string;
   position?: number;
@@ -24,7 +24,7 @@ export interface AgentPanelState {
   error?: string;
 }
 
-export type BackendType = 'Ollama' | 'OpenAI';
+export type BackendType = "Ollama" | "OpenAI";
 
 export interface AiConfig {
   backend: BackendType;

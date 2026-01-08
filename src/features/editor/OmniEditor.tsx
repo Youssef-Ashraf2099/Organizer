@@ -20,6 +20,7 @@ import { PdfBlock } from "./PdfBlock";
 import { MermaidBlock } from "./MermaidBlock";
 import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
+import { markdownToBlocks } from "./markdownParser";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
@@ -41,7 +42,11 @@ interface OmniEditorProps {
   onSelectText?: (text: string) => void;
 }
 
-export const OmniEditor = ({ onUpload, onAISuggest, onSelectText }: OmniEditorProps) => {
+export const OmniEditor = ({
+  onUpload,
+  onAISuggest,
+  onSelectText,
+}: OmniEditorProps) => {
   // Dormant hooks stub - logging to satisfy linter until implemented
   useEffect(() => {
     if (onUpload) console.debug("Upload handler registered");
@@ -207,25 +212,39 @@ export const OmniEditor = ({ onUpload, onAISuggest, onSelectText }: OmniEditorPr
     const handleInsertAI = (event: Event) => {
       const customEvent = event as CustomEvent<{ response: string }>;
       const { response } = customEvent.detail;
-      
-      if (editor && response) {
-        editor.insertBlocks(
-          [
-            {
-              type: "paragraph",
-              props: {
-                textContent: response,
-              },
-            },
-          ],
-          editor.getTextCursorPosition().block,
-          "after"
-        );
+
+      if (!editor || !response) return;
+
+      console.debug("insertAIResponse received", {
+        length: response.length,
+        hasEditor: !!editor,
+      });
+
+      // Parse markdown into BlockNote blocks
+      const blocks = markdownToBlocks(response);
+      if (blocks.length === 0) return;
+
+      // Prefer current cursor, otherwise append to the last block
+      const cursor = editor.getTextCursorPosition();
+      const fallbackBlock = editor.document[editor.document.length - 1];
+      const targetBlock = cursor?.block ?? fallbackBlock?.id ?? null;
+
+      if (targetBlock) {
+        editor.insertBlocks(blocks, targetBlock, "after");
+      } else {
+        // If no target block exists (empty doc), just add as first block
+        editor.insertBlocks(blocks);
+      }
+
+      // Move cursor after inserted blocks
+      const lastBlock = editor.document[editor.document.length - 1];
+      if (lastBlock) {
+        editor.setTextCursorPosition({ block: lastBlock.id, offset: 0 });
       }
     };
 
-    window.addEventListener('insertAIResponse', handleInsertAI);
-    return () => window.removeEventListener('insertAIResponse', handleInsertAI);
+    window.addEventListener("insertAIResponse", handleInsertAI);
+    return () => window.removeEventListener("insertAIResponse", handleInsertAI);
   }, [editor]);
 
   // Handle file upload
@@ -412,7 +431,7 @@ export const OmniEditor = ({ onUpload, onAISuggest, onSelectText }: OmniEditorPr
         <div className="flex gap-2">
           <button
             onClick={() => {
-              const selection = window.getSelection()?.toString() || '';
+              const selection = window.getSelection()?.toString() || "";
               // Always open panel, even without selected text
               onSelectText?.(selection);
             }}

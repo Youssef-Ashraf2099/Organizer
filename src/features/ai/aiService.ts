@@ -1,13 +1,13 @@
-import { invoke } from '@tauri-apps/api/core';
-import { AIAction, AiConfig, BackendType } from './types';
+import { invoke } from "@tauri-apps/api/core";
+import { AIAction, AiConfig, BackendType } from "./types";
 
 export const aiService = {
   /// Check if Ollama is running
   async healthCheck(): Promise<boolean> {
     try {
-      return await invoke<boolean>('ai_health_check');
+      return await invoke<boolean>("ai_health_check");
     } catch (error) {
-      console.error('Health check failed:', error);
+      console.error("Health check failed:", error);
       return false;
     }
   },
@@ -15,9 +15,9 @@ export const aiService = {
   /// Get list of available models
   async listModels(): Promise<string[]> {
     try {
-      return await invoke<string[]>('ai_list_models');
+      return await invoke<string[]>("ai_list_models");
     } catch (error) {
-      console.error('Failed to list models:', error);
+      console.error("Failed to list models:", error);
       return [];
     }
   },
@@ -25,9 +25,9 @@ export const aiService = {
   /// Get predefined AI actions
   async getActions(): Promise<AIAction[]> {
     try {
-      return await invoke<AIAction[]>('ai_get_actions');
+      return await invoke<AIAction[]>("ai_get_actions");
     } catch (error) {
-      console.error('Failed to get actions:', error);
+      console.error("Failed to get actions:", error);
       return [];
     }
   },
@@ -40,8 +40,9 @@ export const aiService = {
     pageContext?: string
   ): Promise<string> {
     try {
-      return await invoke<string>('ai_execute_action', {
+      return await invoke<string>("ai_execute_action", {
         // Some Tauri versions expect camelCase, others the exact arg name; send both to be safe
+        _page_id: pageId,
         page_id: pageId,
         pageId,
         action_id: actionId,
@@ -51,7 +52,7 @@ export const aiService = {
         pageContext,
       });
     } catch (error) {
-      console.error('Failed to execute action:', error);
+      console.error("Failed to execute action:", error);
       throw error;
     }
   },
@@ -59,15 +60,25 @@ export const aiService = {
   /// Get current AI state
   async getState(): Promise<AiConfig> {
     try {
-      return await invoke<AiConfig>('ai_get_state');
+      return await invoke<AiConfig>("ai_get_state");
     } catch (error) {
-      console.error('Failed to get AI state:', error);
+      console.error("Failed to get AI state:", error);
       throw error;
     }
   },
 
   /// Update AI state (backend, base_url, model)
-  async setState(backend: BackendType, baseUrl: string, model: string): Promise<void> {
-    await invoke('ai_set_state', { backend, base_url: baseUrl, model });
+  async setState(
+    backend: BackendType,
+    baseUrl: string,
+    model: string
+  ): Promise<void> {
+    await invoke("ai_set_state", {
+      backend,
+      // Provide both snake_case and camelCase to satisfy different Tauri arg parsers
+      base_url: baseUrl,
+      baseUrl,
+      model,
+    });
   },
 };
