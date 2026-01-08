@@ -7,7 +7,16 @@ import "@blocknote/mantine/style.css";
 import { usePageStore } from '../../core/store/pageStore';
 import Database from '@tauri-apps/plugin-sql';
 import { MathBlock } from './MathBlock';
+import { ImageBlock } from './ImageBlock';
+import { VideoBlock } from './VideoBlock';
+import { PdfBlock } from './PdfBlock';
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
+import { FaImage } from "@react-icons/all-files/fa/FaImage";
+import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
+import { FaFilePdf } from "@react-icons/all-files/fa/FaFilePdf";
+import { FaSave } from "@react-icons/all-files/fa/FaSave";
+import { uploadFileFromPicker, uploadFileFromPath } from '../../core/services/fileService';
+import { useTemplateStore } from '../../core/store/templateStore';
 // I will implement a custom debounce or just setTimeout. 
 // Or I can install `use-debounce`. I'll do custom ref.
 
@@ -27,6 +36,10 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
 
     const activePageId = usePageStore(s => s.activePageId);
     const updatePageTitle = usePageStore(s => s.updatePageTitle);
+    const createTemplate = useTemplateStore(s => s.createTemplate);
+    const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+    const [templateName, setTemplateName] = useState('');
+    const [templateDescription, setTemplateDescription] = useState('');
     
     // Editor instance
     const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
@@ -105,11 +118,14 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
                     } catch(e) { console.error("Bad JSON", e); }
                 }
                 
-                // Create schema with custom block
+                // Create schema with custom blocks
                 const schema = BlockNoteSchema.create({
                     blockSpecs: {
                         ...BlockNoteSchema.create().blockSpecs,
                         math: MathBlock(),
+                        image: ImageBlock(),
+                        video: VideoBlock(),
+                        pdf: PdfBlock(),
                     },
                 });
 
@@ -133,6 +149,67 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
     const handleChange = () => {
         if (editor && activePageId) {
              debouncedSave(editor.document, activePageId);
+        }
+    };
+
+    // Handle file upload
+    const handleFileUpload = async (fileType: 'image' | 'video' | 'pdf') => {
+        if (!editor || !activePageId) return;
+
+        try {
+            const assetInfo = await uploadFileFromPicker(activePageId);
+            if (!assetInfo) return;
+
+            const blockType = fileType === 'image' ? 'image' : fileType === 'video' ? 'video' : 'pdf';
+            const blockProps: any = {
+                assetId: assetInfo.id,
+                filePath: assetInfo.file_path,
+                fileName: assetInfo.file_name,
+            };
+
+            if (blockType === 'image') {
+                blockProps.width = 100;
+                blockProps.alt = assetInfo.file_name;
+            } else if (blockType === 'video') {
+                blockProps.width = 100;
+            } else {
+                blockProps.height = 600;
+            }
+
+            editor.insertBlocks(
+                [
+                    {
+                        type: blockType,
+                        props: blockProps,
+                    },
+                ],
+                editor.getTextCursorPosition().block,
+                "after"
+            );
+        } catch (error) {
+            console.error('Failed to upload file:', error);
+            alert('Failed to upload file: ' + error);
+        }
+    };
+
+    // Handle save as template
+    const handleSaveAsTemplate = async () => {
+        if (!editor || !templateName.trim()) return;
+
+        try {
+            await createTemplate(
+                templateName,
+                templateDescription,
+                editor.document,
+                '📄'
+            );
+            setShowSaveTemplateDialog(false);
+            setTemplateName('');
+            setTemplateDescription('');
+            alert('Template saved successfully!');
+        } catch (error) {
+            console.error('Failed to save template:', error);
+            alert('Failed to save template: ' + error);
         }
     };
     
@@ -203,13 +280,23 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
                     defaultValue={usePageStore.getState().pages[activePageId]?.title || ''}
                     onChange={(e) => updatePageTitle(activePageId, e.target.value)}
                  />
-                 <button 
-                    onClick={() => window.print()} 
-                    className="ml-4 p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition"
-                    title="Export to PDF"
-                 >
-                    Export PDF
-                 </button>
+                 <div className="flex gap-2">
+                    <button 
+                        onClick={() => setShowSaveTemplateDialog(true)}
+                        className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition flex items-center gap-1"
+                        title="Save as Template"
+                    >
+                        <FaSave size={14} />
+                        Save as Template
+                    </button>
+                    <button 
+                        onClick={() => window.print()} 
+                        className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition"
+                        title="Export to PDF"
+                    >
+                        Export PDF
+                    </button>
+                 </div>
              </div>
              
              <div className="min-h-[70vh] pb-48">
@@ -237,6 +324,30 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
                                     icon: <FaCalculator />,
                                     subtext: "Insert a LaTeX math block",
                                 },
+                                {
+                                    title: "Image",
+                                    onItemClick: () => handleFileUpload('image'),
+                                    aliases: ["img", "picture", "photo"],
+                                    group: "Images",
+                                    icon: <FaImage />,
+                                    subtext: "Upload and insert an image",
+                                },
+                                {
+                                    title: "Video",
+                                    onItemClick: () => handleFileUpload('video'),
+                                    aliases: ["movie", "clip"],
+                                    group: "Videos",
+                                    icon: <FaVideo />,
+                                    subtext: "Upload and insert a video",
+                                },
+                                {
+                                    title: "PDF",
+                                    onItemClick: () => handleFileUpload('pdf'),
+                                    aliases: ["document", "file"],
+                                    group: "Documents",
+                                    icon: <FaFilePdf />,
+                                    subtext: "Upload and embed a PDF",
+                                },
                             ];
                             
                             return items.filter((item) => {
@@ -250,6 +361,62 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
                     />
                 </BlockNoteView>
              </div>
+
+             {/* Save as Template Dialog */}
+             {showSaveTemplateDialog && (
+                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+                     <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl p-6 w-full max-w-md">
+                         <h3 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">
+                             Save as Template
+                         </h3>
+                         <div className="space-y-4">
+                             <div>
+                                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                                     Template Name *
+                                 </label>
+                                 <input
+                                     type="text"
+                                     value={templateName}
+                                     onChange={(e) => setTemplateName(e.target.value)}
+                                     className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                     placeholder="Enter template name"
+                                 />
+                             </div>
+                             <div>
+                                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                                     Description
+                                 </label>
+                                 <textarea
+                                     value={templateDescription}
+                                     onChange={(e) => setTemplateDescription(e.target.value)}
+                                     className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                     placeholder="Enter template description"
+                                     rows={3}
+                                 />
+                             </div>
+                             <div className="flex gap-2 justify-end">
+                                 <button
+                                     onClick={() => {
+                                         setShowSaveTemplateDialog(false);
+                                         setTemplateName('');
+                                         setTemplateDescription('');
+                                     }}
+                                     className="px-4 py-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                                 >
+                                     Cancel
+                                 </button>
+                                 <button
+                                     onClick={handleSaveAsTemplate}
+                                     disabled={!templateName.trim()}
+                                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                     Save
+                                 </button>
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+             )}
         </div>
     );
 };

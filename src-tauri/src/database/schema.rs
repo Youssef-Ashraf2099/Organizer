@@ -67,6 +67,41 @@ pub fn get_migrations() -> Vec<Migration> {
                 END;
             "#,
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "add_assets_and_templates",
+            sql: r#"
+                -- Assets Table (File Storage)
+                CREATE TABLE IF NOT EXISTS assets (
+                    id TEXT PRIMARY KEY,
+                    page_id TEXT,
+                    file_path TEXT NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_type TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    mime_type TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE SET NULL
+                );
+
+                -- Templates Table
+                CREATE TABLE IF NOT EXISTS templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    icon TEXT,
+                    content JSON NOT NULL,
+                    is_builtin INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Index for faster template lookups
+                CREATE INDEX IF NOT EXISTS idx_templates_builtin ON templates(is_builtin);
+                CREATE INDEX IF NOT EXISTS idx_assets_page_id ON assets(page_id);
+            "#,
+            kind: MigrationKind::Up,
         }
     ]
 }

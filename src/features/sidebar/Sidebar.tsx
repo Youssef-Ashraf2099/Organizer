@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { usePageStore } from '../../core/store/pageStore';
 import { ChevronRight, Plus, Trash2, FileText } from 'lucide-react';
-import { cn } from '../../lib/utils'; // Assuming Shadcn utils exist, if not I'll inline or create util
+import { cn } from '../../lib/utils';
+import { TemplatePicker } from '../templates/TemplatePicker';
+import { TemplateManager } from '../templates/TemplateManager';
+import { Template } from '../../core/templates/builtinTemplates';
+import { FolderOpen } from 'lucide-react';
 // I need simple utility for classnames
 // I'll assume standard shadcn utils structure or minimal inline
 
-const PageItem = ({ pageId, level }: { pageId: string; level: number }) => {
+const PageItem = ({ pageId, level, onAddChild }: { pageId: string; level: number; onAddChild: (parentId: string) => void }) => {
   const page = usePageStore((s) => s.pages[pageId]);
   const children = usePageStore((s) => s.childrenMap[pageId]);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
-  const addPage = usePageStore((s) => s.addPage);
   const deletePage = usePageStore((s) => s.deletePage);
 
   const [isOpen, setIsOpen] = useState(false);
@@ -25,9 +28,9 @@ const PageItem = ({ pageId, level }: { pageId: string; level: number }) => {
     setIsOpen(!isOpen);
   };
 
-  const handleAddChild = async (e: React.MouseEvent) => {
+  const handleAddChild = (e: React.MouseEvent) => {
     e.stopPropagation();
-    await addPage(pageId);
+    onAddChild(pageId);
     setIsOpen(true);
   };
   
@@ -72,7 +75,7 @@ const PageItem = ({ pageId, level }: { pageId: string; level: number }) => {
       </div>
       
       {isOpen && hasChildren && children.map((childId) => (
-        <PageItem key={childId} pageId={childId} level={level + 1} />
+        <PageItem key={childId} pageId={childId} level={level + 1} onAddChild={onAddChild} />
       ))}
     </div>
   );
@@ -82,29 +85,76 @@ export const Sidebar = () => {
   const rootIds = usePageStore((s) => s.rootPageIds);
   const loadTree = usePageStore((s) => s.loadTree);
   const addPage = usePageStore((s) => s.addPage);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [pendingParentId, setPendingParentId] = useState<string | null>(null);
 
   useEffect(() => {
     loadTree();
   }, [loadTree]);
 
+  const handleAddPage = (parentId: string | null = null) => {
+    setPendingParentId(parentId);
+    setShowTemplatePicker(true);
+  };
+
+  const handleTemplateSelect = async (template: Template | null) => {
+    const templateId = template ? template.id : null;
+    const newPageId = await addPage(pendingParentId, templateId);
+    if (newPageId) {
+      setActivePage(newPageId);
+    }
+    setShowTemplatePicker(false);
+    setPendingParentId(null);
+  };
+
   return (
-    <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 no-print">
-      <div className="p-3 border-b border-zinc-200 flex items-center justify-between">
-         <span className="font-semibold text-zinc-700 dark:text-zinc-200">Omni</span>
-         <button onClick={() => addPage(null)} className="p-1 hover:bg-zinc-200 rounded"><Plus size={16}/></button>
-      </div>
+    <>
+      <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 no-print">
+        <div className="p-3 border-b border-zinc-200 flex items-center justify-between">
+           <span className="font-semibold text-zinc-700 dark:text-zinc-200">Omni</span>
+           <button onClick={() => handleAddPage(null)} className="p-1 hover:bg-zinc-200 rounded"><Plus size={16}/></button>
+        </div>
       <div className="flex-1 overflow-y-auto py-2">
         {rootIds.map((id) => (
-          <PageItem key={id} pageId={id} level={0} />
+          <PageItem key={id} pageId={id} level={0} onAddChild={handleAddPage} />
         ))}
       </div>
       
+      {/* Templates Section */}
+      <div className="border-t border-zinc-200 dark:border-zinc-800 p-2">
+         <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">Templates</div>
+         <button
+           onClick={() => setShowTemplateManager(true)}
+           className="w-full px-2 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded flex items-center gap-2 transition"
+         >
+           <FolderOpen size={14} />
+           Manage Templates
+         </button>
+      </div>
+      
       {/* Knowledge Base Placeholder */}
-      <div className="border-t border-zinc-200 p-2">
-         <div className="text-xs font-bold text-zinc-500 mb-2 uppercase px-2">Knowledge Base</div>
+      <div className="border-t border-zinc-200 dark:border-zinc-800 p-2">
+         <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">Knowledge Base</div>
          <div className="px-2 py-1 text-sm text-zinc-400 italic">Documents (Coming Soon)</div>
       </div>
-    </div>
+      </div>
+      
+      <TemplatePicker
+        isOpen={showTemplatePicker}
+        onClose={() => {
+          setShowTemplatePicker(false);
+          setPendingParentId(null);
+        }}
+        onSelect={handleTemplateSelect}
+      />
+      
+      <TemplateManager
+        isOpen={showTemplateManager}
+        onClose={() => setShowTemplateManager(false)}
+      />
+    </>
   );
 };
 

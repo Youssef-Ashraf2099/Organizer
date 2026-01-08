@@ -19,7 +19,7 @@ interface PageStore {
   
   // Actions
   loadTree: () => Promise<void>;
-  addPage: (parentId?: string | null) => Promise<string>;
+  addPage: (parentId?: string | null, templateId?: string | null) => Promise<string>;
   deletePage: (pageId: string) => Promise<void>;
   updatePageTitle: (pageId: string, title: string) => Promise<void>;
   setActivePage: (pageId: string | null) => void;
@@ -89,17 +89,45 @@ export const usePageStore = create<PageStore>((set, get) => ({
     }
   },
 
-  addPage: async (parentId = null) => {
+  addPage: async (parentId = null, templateId = null) => {
     set({ isLoading: true });
     try {
         const db = await safeGetDb();
         const newId = crypto.randomUUID();
-        const title = 'Untitled';
+        let title = 'Untitled';
+        let initialContent: any[] = [];
+
+        // If template is provided, load template content
+        if (templateId) {
+            const templateRows = await db.select<any[]>(
+                'SELECT name, content FROM templates WHERE id = $1',
+                [templateId]
+            );
+            if (templateRows.length > 0) {
+                title = templateRows[0].name;
+                try {
+                    initialContent = typeof templateRows[0].content === 'string'
+                        ? JSON.parse(templateRows[0].content)
+                        : templateRows[0].content;
+                } catch (e) {
+                    console.error('Failed to parse template content:', e);
+                }
+            }
+        }
         
         await db.execute(
         'INSERT INTO pages (id, parent_id, title) VALUES ($1, $2, $3)',
         [newId, parentId, title]
         );
+
+        // If template content exists, save it to blocks
+        if (initialContent.length > 0) {
+            const contentJson = JSON.stringify(initialContent);
+            await db.execute(
+                'INSERT INTO blocks (id, page_id, content, sort_order) VALUES ($1, $2, $3, $4)',
+                [crypto.randomUUID(), newId, contentJson, 0]
+            );
+        }
 
         const newPage: PageMetadata = { id: newId, parent_id: parentId, title, icon: null };
         
