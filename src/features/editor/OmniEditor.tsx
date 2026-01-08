@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { BlockNoteEditor, PartialBlock } from "@blocknote/core";
+import { BlockNoteEditor, PartialBlock, BlockNoteSchema } from "@blocknote/core";
+import { SuggestionMenuController, getDefaultReactSlashMenuItems } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { usePageStore } from '../../core/store/pageStore';
 import Database from '@tauri-apps/plugin-sql';
+import { MathBlock } from './MathBlock';
+import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 // I will implement a custom debounce or just setTimeout. 
 // Or I can install `use-debounce`. I'll do custom ref.
 
@@ -26,7 +29,7 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
     const updatePageTitle = usePageStore(s => s.updatePageTitle);
     
     // Editor instance
-    const [editor, setEditor] = useState<BlockNoteEditor | null>(null);
+    const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
     // Save Logic
@@ -102,9 +105,18 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
                     } catch(e) { console.error("Bad JSON", e); }
                 }
                 
-                // Create new editor instance
+                // Create schema with custom block
+                const schema = BlockNoteSchema.create({
+                    blockSpecs: {
+                        ...BlockNoteSchema.create().blockSpecs,
+                        math: MathBlock(),
+                    },
+                });
+
+                // Create new editor instance with custom schema
                 const newEditor = BlockNoteEditor.create({
                     initialContent: loaded.length > 0 ? loaded : undefined,
+                    schema,
                 });
                 setEditor(newEditor);
             } catch (e) {
@@ -201,7 +213,42 @@ export const OmniEditor = ({ onUpload, onAISuggest }: OmniEditorProps) => {
              </div>
              
              <div className="min-h-[70vh] pb-48">
-                 <BlockNoteView editor={editor} onChange={handleChange} theme={darkTheme} />
+                <BlockNoteView editor={editor} onChange={handleChange} theme={darkTheme} slashMenu={false}>
+                    <SuggestionMenuController
+                        triggerCharacter={"/"}
+                        getItems={async (query) => {
+                            const items = [
+                                ...getDefaultReactSlashMenuItems(editor),
+                                {
+                                    title: "Math",
+                                    onItemClick: () => {
+                                        editor.insertBlocks(
+                                            [
+                                                {
+                                                    type: "math",
+                                                },
+                                            ],
+                                            editor.getTextCursorPosition().block,
+                                            "after"
+                                        );
+                                    },
+                                    aliases: ["latex", "equation", "formula"],
+                                    group: "Other",
+                                    icon: <FaCalculator />,
+                                    subtext: "Insert a LaTeX math block",
+                                },
+                            ];
+                            
+                            return items.filter((item) => {
+                                const lowerQuery = query.toLowerCase();
+                                return (
+                                    item.title.toLowerCase().includes(lowerQuery) ||
+                                    (item.aliases && item.aliases.some((alias) => alias.toLowerCase().includes(lowerQuery)))
+                                );
+                            });
+                        }}
+                    />
+                </BlockNoteView>
              </div>
         </div>
     );
