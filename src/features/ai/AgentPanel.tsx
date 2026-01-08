@@ -39,6 +39,7 @@ export const AgentPanel = ({
   const [customPrompt, setCustomPrompt] = useState("");
   const [autoInsert, setAutoInsert] = useState(true);
   const [pdfText, setPdfText] = useState<string>("");
+  const [pdfFileName, setPdfFileName] = useState<string>("");
 
   // Auto-insert responses into the page when enabled
   useEffect(() => {
@@ -59,11 +60,12 @@ export const AgentPanel = ({
     setIsLoadingPDF(true);
     try {
       const text = await extractTextFromPDF(file);
-      // Store PDF text for custom prompt use
+      // Store PDF text and filename for custom prompt use
       setPdfText(text);
-      // Show a preview in selected text
+      setPdfFileName(file.name);
+      // Show PDF loaded status in selected text
       setSelectedText(
-        `📄 PDF loaded: ${file.name} (${text.length} chars)\n\n${text.slice(
+        `📄 PDF: ${file.name}\n(${text.length} characters)\n\n${text.slice(
           0,
           200
         )}...`
@@ -306,27 +308,52 @@ export const AgentPanel = ({
                 onChange={handlePDFUpload}
                 className="hidden"
               />
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="text-sm">
-                  <p className="font-semibold">Upload & Summarize PDF</p>
-                  <p className="text-white/80 text-xs">
-                    We will auto-run summarize on the extracted text
-                  </p>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">Upload PDF</p>
+                    <p className="text-white/80 text-xs">
+                      Ask questions or get custom notes from your PDF
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isLoadingPDF}
+                    className="px-4 py-2.5 bg-white text-purple-700 font-semibold rounded-xl hover:bg-white/90 disabled:opacity-60 transition flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <FaFilePdf size={16} />
+                    {isLoadingPDF ? "Processing..." : "Choose PDF"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isLoadingPDF}
-                  className="px-4 py-2.5 bg-white text-purple-700 font-semibold rounded-xl hover:bg-white/90 disabled:opacity-60 transition flex items-center gap-2"
-                >
-                  <FaFilePdf size={16} />
-                  {isLoadingPDF ? "Processing..." : "Choose PDF"}
-                </button>
+                {pdfFileName && (
+                  <div className="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span>📄</span>
+                      <span className="font-medium truncate">
+                        {pdfFileName}
+                      </span>
+                      <span className="text-xs text-white/70">
+                        ({(pdfText.length / 1000).toFixed(1)}K chars)
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setPdfText("");
+                        setPdfFileName("");
+                        setSelectedText("");
+                      }}
+                      className="px-2 py-1 text-xs rounded bg-white/20 hover:bg-white/30 transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* Actions Grid */}
-          {!state.response && !state.isLoading && (
+          {!state.response && !state.isLoading && false && (
             <div className="flex-1 overflow-y-auto px-5 pb-6">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">

@@ -241,6 +241,28 @@ export const OmniEditor = ({
       if (lastBlock) {
         editor.setTextCursorPosition({ block: lastBlock.id, offset: 0 });
       }
+
+      // Apply typing animation to newly inserted blocks
+      setTimeout(() => {
+        const blockContainer = document.querySelector(
+          '[class*="BlockNoteView"]'
+        ) as HTMLElement;
+        if (!blockContainer) return;
+
+        // Get all block elements and apply animation to the last N blocks
+        const blockElements = Array.from(
+          blockContainer.querySelectorAll("[data-node-type]")
+        ).slice(-blocks.length) as HTMLElement[];
+
+        blockElements.forEach((element, index) => {
+          element.style.opacity = "0";
+          element.style.transform = "translateY(8px) scale(0.95)";
+          element.style.filter = "blur(4px)";
+          element.style.animation = `aiTypeIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) ${
+            index * 0.1
+          }s both`;
+        });
+      }, 0);
     };
 
     window.addEventListener("insertAIResponse", handleInsertAI);
