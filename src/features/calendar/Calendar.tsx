@@ -37,17 +37,28 @@ export const Calendar = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [isAddingEvent, setIsAddingEvent] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // Load events from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("calendar-events");
     if (saved) {
-      setEvents(JSON.parse(saved));
+      const loadedEvents = JSON.parse(saved);
+      console.log("📅 Loaded", loadedEvents.length, "events from localStorage");
+      setEvents(loadedEvents);
+    } else {
+      console.log("📅 No saved events found");
     }
+    setIsInitialized(true);
   }, []);
 
+  // Save events to localStorage whenever they change (after initial load)
   useEffect(() => {
-    localStorage.setItem("calendar-events", JSON.stringify(events));
-  }, [events]);
+    if (isInitialized) {
+      localStorage.setItem("calendar-events", JSON.stringify(events));
+      console.log("💾 Saved", events.length, "events to localStorage");
+    }
+  }, [events, isInitialized]);
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -103,6 +114,13 @@ export const Calendar = () => {
     );
   };
 
+  const isPastDate = (day: number) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(year, month, day);
+    return checkDate < today;
+  };
+
   const addEvent = (event: Omit<CalendarEvent, "id">) => {
     setEvents([...events, { ...event, id: crypto.randomUUID() }]);
   };
@@ -126,6 +144,7 @@ export const Calendar = () => {
     const dateStr = getDateString(day);
     const dayEvents = getEventsForDate(dateStr);
     const today = isToday(day);
+    const isPast = isPastDate(day);
 
     days.push(
       <div
@@ -134,6 +153,8 @@ export const Calendar = () => {
         className={`rounded-lg border-2 p-1.5 cursor-pointer transition h-20 ${
           today
             ? "border-yellow-500 bg-yellow-500/10"
+            : isPast
+            ? "border-zinc-800/50 bg-zinc-900/30 opacity-60"
             : dateStr === selectedDate
             ? "border-blue-500 bg-blue-500/10"
             : "border-zinc-800 hover:border-zinc-700"
@@ -142,13 +163,21 @@ export const Calendar = () => {
         <div className="flex items-center justify-between mb-0.5">
           <span
             className={`text-xs font-bold ${
-              today ? "text-yellow-500" : "text-zinc-300"
+              today
+                ? "text-yellow-500"
+                : isPast
+                ? "text-zinc-600"
+                : "text-zinc-300"
             }`}
           >
             {day}
           </span>
           {dayEvents.length > 0 && (
-            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center">
+            <span
+              className={`w-4 h-4 rounded-full text-white text-[10px] flex items-center justify-center ${
+                isPast ? "bg-zinc-600" : "bg-blue-600"
+              }`}
+            >
               {dayEvents.length}
             </span>
           )}
@@ -157,7 +186,9 @@ export const Calendar = () => {
           {dayEvents.slice(0, 1).map((event) => (
             <div
               key={event.id}
-              className="text-[10px] px-1 py-0.5 rounded truncate"
+              className={`text-[10px] px-1 py-0.5 rounded truncate ${
+                isPast ? "opacity-70" : ""
+              }`}
               style={{
                 backgroundColor: TAG_COLOR_MAP[event.tag] + "40",
                 color: TAG_COLOR_MAP[event.tag],

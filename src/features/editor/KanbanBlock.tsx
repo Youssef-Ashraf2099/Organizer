@@ -160,18 +160,18 @@ export const KanbanBlock = createReactBlockSpec(
         updateBoard(next);
       };
 
-      const updateCard = (
-        colId: string,
-        cardId: string,
-        updates: Partial<Card>
-      ) => {
-        const next = structuredClone(board);
-        const card = next.cards[colId]?.find((c) => c.id === cardId);
-        if (card) {
-          Object.assign(card, updates);
-          updateBoard(next);
-        }
-      };
+      // const updateCard = (
+      //   colId: string,
+      //   cardId: string,
+      //   updates: Partial<Card>
+      // ) => {
+      //   const next = structuredClone(board);
+      //   const card = next.cards[colId]?.find((c) => c.id === cardId);
+      //   if (card) {
+      //     Object.assign(card, updates);
+      //     updateBoard(next);
+      //   }
+      // };
 
       const removeCard = (colId: string, cardId: string) => {
         const next = structuredClone(board);
@@ -222,9 +222,9 @@ export const KanbanBlock = createReactBlockSpec(
         }
       };
 
-      const saveCardAndClose = () => {
-        setEditingCard(null);
-      };
+      // const saveCardAndClose = () => {
+      //   setEditingCard(null);
+      // };
 
       return (
         <div

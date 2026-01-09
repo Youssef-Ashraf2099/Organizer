@@ -9,10 +9,12 @@ import { FaRobot } from "@react-icons/all-files/fa/FaRobot";
 import { FaListUl } from "@react-icons/all-files/fa/FaListUl";
 import { FaCalendar } from "@react-icons/all-files/fa/FaCalendar";
 import { FaFile } from "@react-icons/all-files/fa/FaFile";
+import { FaComments } from "@react-icons/all-files/fa/FaComments";
 import { TodoList } from "../../features/todo/TodoList";
 import { Calendar } from "../../features/calendar/Calendar";
+import { AIChat } from "../../features/ai/AIChat";
 
-type RightPanelView = "editor" | "todo" | "calendar";
+type RightPanelView = "editor" | "todo" | "calendar" | "aichat";
 
 export const AppLayout = () => {
   const [sidebarWidth, setSidebarWidth] = useState(250);
@@ -63,7 +65,7 @@ export const AppLayout = () => {
   }, [resize, stopResizing]);
 
   return (
-    <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-hidden">
+    <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-x-hidden overflow-y-auto">
       {/* Left Sidebar - Always Pages */}
       <div
         style={{ width: sidebarWidth }}
@@ -82,7 +84,7 @@ export const AppLayout = () => {
       />
 
       {/* Right Panel with Tabs */}
-      <div className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative">
+      <div className="flex-1 h-full min-w-0 flex flex-col overflow-y-auto relative">
         {/* Tab Buttons at Top */}
         <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900">
           <button
@@ -121,15 +123,28 @@ export const AppLayout = () => {
             <FaCalendar size={14} />
             Calendar
           </button>
+          <button
+            onClick={() => setRightPanelView("aichat")}
+            className={cn(
+              "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+              rightPanelView === "aichat"
+                ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            )}
+          >
+            <FaComments size={14} />
+            AI Chat
+          </button>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
           {rightPanelView === "editor" && (
             <OmniEditor onSelectText={() => {}} />
           )}
           {rightPanelView === "todo" && <TodoList />}
           {rightPanelView === "calendar" && <Calendar />}
+          {rightPanelView === "aichat" && <AIChat />}
         </div>
 
         {/* Floating AI Button */}

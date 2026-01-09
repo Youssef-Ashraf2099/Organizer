@@ -13,6 +13,12 @@ pub enum OllamaError {
     IoError(#[from] std::io::Error),
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatMessage {
+    pub role: String, // "user" or "assistant"
+    pub content: String,
+}
+
 pub type OllamaResult<T> = Result<T, OllamaError>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -166,5 +172,53 @@ impl OllamaClient {
 
         let tags: TagsResponse = response.json().await?;
         Ok(tags.models.iter().map(|m| m.name.clone()).collect())
+    }
+
+    /// Chat with the model (conversational interface)
+    pub async fn chat(
+        &self,
+        message: &str,
+        messages: Vec<ChatMessage>,
+    ) -> OllamaResult<String> {
+        #[derive(Serialize)]
+        struct ChatRequest {
+            model: String,
+            messages: Vec<ChatMessage>,
+            stream: bool,
+        }
+
+        #[derive(Deserialize)]
+        struct ChatResponse {
+            message: ChatMessage,
+        }
+
+        let mut chat_messages = messages;
+        chat_messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: message.to_string(),
+        });
+
+        let request = ChatRequest {
+            model: self.default_model.clone(),
+            messages: chat_messages,
+            stream: false,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(OllamaError::ApiError(format!(
+                "Ollama chat API returned: {}",
+                response.status()
+            )));
+        }
+
+        let chat_response: ChatResponse = response.json().await?;
+        Ok(chat_response.message.content)
     }
 }

@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 use tauri::Manager;
 use uuid::Uuid;
-use ai::{OllamaClient, OpenAIClient, RAGEngine, operations::AIAction, AiConfig, BackendType};
+use ai::{OllamaClient, OpenAIClient, RAGEngine, operations::AIAction, AiConfig, BackendType, ChatMessage};
 use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -247,6 +247,28 @@ fn ai_set_state(state: tauri::State<'_, AiState>, backend: BackendType, base_url
     Ok(())
 }
 
+/// Chat with AI model (conversational interface)
+#[tauri::command]
+async fn ai_chat(
+    state: tauri::State<'_, AiState>,
+    message: String,
+    history: Vec<ChatMessage>,
+) -> Result<String, String> {
+    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
+    
+    match cfg.backend {
+        BackendType::Ollama => {
+            let client = OllamaClient::new(Some(cfg.base_url.clone()), cfg.model.clone());
+            client.chat(&message, history).await.map_err(|e| e.to_string())
+        }
+        BackendType::OpenAI => {
+            // For now, OpenAI-compatible servers use the generate endpoint
+            let client = OpenAIClient::new(cfg.base_url.clone(), cfg.model.clone(), None);
+            client.generate(&message, Some(0.7), Some(2000)).await.map_err(|e| e.to_string())
+        }
+    }
+}
+
 /// State struct for sharing dependencies across commands
 pub struct AiState {
     pub config: Mutex<AiConfig>,
@@ -280,6 +302,7 @@ pub fn run() {
             ai_execute_action,
             ai_get_state,
             ai_set_state,
+            ai_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

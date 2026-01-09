@@ -4,6 +4,7 @@ pub mod operations;
 pub mod openai;
 
 pub use ollama::OllamaClient;
+pub use ollama::ChatMessage;
 pub use rag::RAGEngine;
 pub use operations::{EditOperation, EditOperationType};
 pub use openai::OpenAIClient;
