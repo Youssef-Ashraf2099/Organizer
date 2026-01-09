@@ -232,7 +232,9 @@ export const TodoList = () => {
                       todo.subtasks?.filter((s) => s.completed).length || 0;
                     const totalSubtasks = todo.subtasks?.length || 0;
                     const linkedEvent = todo.linkedEventId
-                      ? calendarEvents.find((e: any) => e.id === todo.linkedEventId)
+                      ? calendarEvents.find(
+                          (e: any) => e.id === todo.linkedEventId
+                        )
                       : null;
                     const daysLeft = linkedEvent
                       ? calculateDaysLeft(linkedEvent.date)
@@ -500,7 +502,9 @@ export const TodoList = () => {
                       const daysLeft = calculateDaysLeft(linkedEvent.date);
                       const status = getDaysLeftDisplay(daysLeft);
                       return (
-                        <span className={`${status.color} ${status.bgColor} px-3 py-1 rounded-md inline-block`}>
+                        <span
+                          className={`${status.color} ${status.bgColor} px-3 py-1 rounded-md inline-block`}
+                        >
                           {status.text}
                         </span>
                       );
@@ -923,7 +927,9 @@ export const TodoList = () => {
                       const daysLeft = calculateDaysLeft(linkedEvent.date);
                       const status = getDaysLeftDisplay(daysLeft);
                       return (
-                        <span className={`${status.color} ${status.bgColor} px-3 py-1 rounded-md inline-block`}>
+                        <span
+                          className={`${status.color} ${status.bgColor} px-3 py-1 rounded-md inline-block`}
+                        >
                           {status.text}
                         </span>
                       );

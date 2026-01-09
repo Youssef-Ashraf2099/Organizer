@@ -7,6 +7,7 @@ A powerful **Notion-like offline-first productivity workspace** with AI integrat
 ## 🎯 What Is Omni Workspace?
 
 Omni is a feature-rich note-taking and task management platform combining:
+
 - ✍️ **Block-based editor** (Notion-style)
 - 📅 **Calendar & event management** with deadline tracking
 - ✅ **Kanban task board** (Trello-style drag & drop)
@@ -21,6 +22,7 @@ Omni is a feature-rich note-taking and task management platform combining:
 ## 🚀 Quick Start (5 Minutes)
 
 ### Prerequisites
+
 - **Node.js 18+** - [Download](https://nodejs.org/)
 - **Rust** - [Install Rustup](https://rustup.rs/)
 - **Tauri CLI** - `npm install -g @tauri-apps/cli`
@@ -42,6 +44,7 @@ npm run tauri dev
 The app will open automatically. 🎉
 
 ### Optional: Build for Production
+
 ```bash
 npm run tauri build
 # Executable will be in src-tauri/target/release/bundle/
@@ -99,6 +102,7 @@ Organizer/
 **Goal:** Build a stable, offline-first Notion clone with hierarchical pages.
 
 **Features Delivered:**
+
 - 📁 **Hierarchical Sidebar**: Recursive page tree (Folders → Pages → Sub-pages)
 - 🗂️ **Block-Based Editor**: BlockNote with "/" command menu
 - 💾 **Auto-Save Engine**: Debounced save every 800ms
@@ -106,6 +110,7 @@ Organizer/
 - 🗄️ **SQLite Database**: Stored in `%APPDATA%\Local\Omni Workspace`
 
 **Key Components:**
+
 - `src/features/editor/OmniEditor.tsx` - Main editor
 - `src/features/sidebar/Sidebar.tsx` - Page tree
 - `src-tauri/src/database/` - Schema & queries
@@ -117,6 +122,7 @@ Organizer/
 **Goal:** Support file uploads, templates, and export/import.
 
 **Features Delivered:**
+
 - 🖼️ **Image/File Support**: Drag & drop images into editor
 - 📄 **PDF Storage**: Upload PDFs to knowledge base
 - 🎨 **Templates**: Save pages as reusable templates
@@ -125,6 +131,7 @@ Organizer/
 - 🧮 **Math Formulas**: KaTeX LaTeX support
 
 **Key Components:**
+
 - `src/features/editor/ImageBlock.tsx` - Image handling
 - `src/features/editor/MermaidBlock.tsx` - Diagrams
 - `src/features/editor/ChartBlock.tsx` - Data visualization
@@ -137,6 +144,7 @@ Organizer/
 **Goal:** Add AI-powered assistance using local LLMs and RAG.
 
 **Features Delivered:**
+
 - 🤖 **Local AI Engine**: Connects to Ollama (llama3.2:3b default)
 - 💬 **AI Chat**: Ask questions about your notes
 - ✨ **9 AI Actions**:
@@ -151,6 +159,7 @@ Organizer/
   - ✓ Check Grammar - Fix spelling & grammar
 
 **Key Components:**
+
 - `src/features/ai/AIChat.tsx` - Chat interface
 - `src/features/ai/AgentPanel.tsx` - Action buttons
 - `src-tauri/src/ai/` - Ollama integration
@@ -165,17 +174,20 @@ Organizer/
 Ollama is a lightweight framework for running LLMs locally on your machine.
 
 **Windows:**
+
 1. Visit [ollama.ai](https://ollama.ai)
 2. Click "Download for Windows"
 3. Run the installer
 4. Follow the setup wizard
 
 **macOS:**
+
 ```bash
 brew install ollama
 ```
 
 **Linux:**
+
 ```bash
 curl https://ollama.ai/install.sh | sh
 ```
@@ -205,6 +217,7 @@ ollama serve
 ```
 
 You should see:
+
 ```
 2024/01/09 10:00:00 Listening on 127.0.0.1:11434
 ```
@@ -214,6 +227,7 @@ You should see:
 ### Step 4: Verify Connection
 
 In another terminal:
+
 ```bash
 curl http://localhost:11434/api/tags
 ```
@@ -233,12 +247,14 @@ Response will list your models (JSON format).
 ## 🎮 Using Features
 
 ### 📝 Block-Based Editor
+
 - Type `/` to open command menu
 - Blocks: text, headings, lists, images, code, math, diagrams, charts, Kanban
 - Auto-saves every 800ms
 - Supports undo/redo (Ctrl+Z, Ctrl+Y)
 
 ### 📅 Calendar & Events
+
 - **Add Event**: Click a date, then "+ Add Another Event"
 - **Event Tags**: Quiz, University, Final, Meeting, Deadline, Birthday, Hangout
 - **Deadline Tracking**: Events tagged "Deadline" show **days left** countdown
@@ -246,23 +262,27 @@ Response will list your models (JSON format).
 - **Link to Tasks**: Attach event to task for tracking
 
 ### ✅ Kanban Board
+
 - **Columns**: Backlog, To Do, In Progress, Done
 - **Add Task**: Click "+ Add Task" in any column
 - **Drag & Drop**: Move cards between columns
 - **Task Details**: Priority, tags, subtasks, checklists
 
 ### 📊 Visualizations
+
 - **Mermaid Diagrams**: `/mermaid` for flowcharts, ERD, sequence diagrams
 - **Charts**: `/chart` for bar/line/pie charts
 - **Kanban Board**: `/kanban` for Trello-style boards
 - Click "Edit" to modify, "Preview" to view
 
 ### 🧮 Math Formulas
+
 - **Insert Math**: `/math` or click ƒ(x) button
 - **Syntax**: Full LaTeX support (KaTeX)
 - **Examples**: `E = mc^2`, `\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`, `\int_0^\infty`
 
 ### 💬 AI Assistant
+
 - **Chat Tab**: Ask questions, get answers powered by local LLM
 - **Text Selection**: Select text in editor → AI panel auto-opens
 - **9 Actions**: Summarize, Rewrite, Expand, Explain, Outline, Tasks, Diagram, Table, Grammar
@@ -283,6 +303,7 @@ pub struct AiState {
 ```
 
 Then rebuild:
+
 ```bash
 npm run tauri dev
 ```
@@ -314,6 +335,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 **Problem**: AI panel shows "Disconnected" status.
 
 **Solution**:
+
 1. Ensure Ollama is running: `ollama serve`
 2. Check port: `curl http://localhost:11434/api/tags`
 3. If failed, restart Ollama
@@ -324,6 +346,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 **Problem**: AI action fails with error message.
 
 **Solution**:
+
 1. Verify model exists: `ollama list`
 2. Check console for detailed error
 3. Try simpler action (e.g., Summarize)
@@ -334,6 +357,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 **Problem**: AI takes 30+ seconds to respond.
 
 **Solution**:
+
 1. Check available VRAM: `ollama list -v`
 2. Try smaller model: `ollama pull llama3.2:3b` (1.3GB)
 3. Close other apps consuming memory
@@ -344,6 +368,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 **Problem**: App won't launch or immediately crashes.
 
 **Solution**:
+
 1. Delete cache: `%APPDATA%\Local\Omni Workspace`
 2. Clear localStorage: DevTools → Application → Clear All
 3. Rebuild: `npm run tauri dev`
@@ -354,6 +379,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 **Problem**: Notes/tasks disappeared.
 
 **Solution**:
+
 1. Check if autosave is enabled (should be automatic)
 2. Look in `%APPDATA%\Local\Omni Workspace\` for database files
 3. Check browser localStorage isn't disabled
@@ -428,6 +454,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 ## 📦 Dependencies
 
 ### Frontend
+
 - **React 18** - UI framework
 - **TypeScript** - Type safety
 - **Tailwind CSS** - Styling
@@ -440,6 +467,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 - **pdfjs-dist** - PDF text extraction
 
 ### Backend
+
 - **Tauri** - Desktop app framework
 - **Rust** - System programming
 - **SQLite** - Local database
@@ -448,6 +476,7 @@ In `src/features/ai/useAgentPanel.ts`, find `temperature` and `max_tokens`:
 - **serde/serde_json** - Serialization
 
 ### External Services
+
 - **Ollama** - Local LLM inference
 - **llama3.2** - Language model (optional alternatives: mistral, neural-chat)
 
@@ -486,6 +515,7 @@ Edit `src/features/editor/OmniEditor.tsx` and add new block schema using BlockNo
 ### Export Data
 
 Manually export from `%APPDATA%\Local\Omni Workspace\`:
+
 - Copy entire folder for backup
 - Or export individual pages as Markdown
 
@@ -493,20 +523,21 @@ Manually export from `%APPDATA%\Local\Omni Workspace\`:
 
 ## 📝 Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `/` | Open block menu in editor |
-| `Cmd/Ctrl + K` | Global search |
-| `Cmd/Ctrl + Z` | Undo |
-| `Cmd/Ctrl + Y` | Redo |
-| `Escape` | Close modal/panel |
-| `Enter` | Confirm action |
+| Shortcut       | Action                    |
+| -------------- | ------------------------- |
+| `/`            | Open block menu in editor |
+| `Cmd/Ctrl + K` | Global search             |
+| `Cmd/Ctrl + Z` | Undo                      |
+| `Cmd/Ctrl + Y` | Redo                      |
+| `Escape`       | Close modal/panel         |
+| `Enter`        | Confirm action            |
 
 ---
 
 ## 🤝 Contributing
 
 Found a bug or want to add a feature? Open an issue with:
+
 - Description of the issue
 - Steps to reproduce
 - Expected vs actual behavior
@@ -534,6 +565,7 @@ This project is open source. Check LICENSE file for details.
 ## 💡 Next Steps (Future Phases)
 
 ### Phase 3.2: Enhanced AI
+
 - [ ] Streaming responses for faster feedback
 - [ ] Direct block editing via AI
 - [ ] Full semantic search with embeddings
@@ -541,12 +573,14 @@ This project is open source. Check LICENSE file for details.
 - [ ] Chat history persistence
 
 ### Phase 4: Collaboration
+
 - [ ] Real-time sync across devices
 - [ ] Team workspaces
 - [ ] Shared templates
 - [ ] Comments & mentions
 
 ### Phase 5: Mobile
+
 - [ ] iOS/Android apps
 - [ ] Cloud sync option
 - [ ] Offline-first PWA
