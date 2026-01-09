@@ -62,15 +62,6 @@ export const OmniEditor = ({
   const [templateDescription, setTemplateDescription] = useState("");
 
   // Drag-to-select state
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
   const dragOverlayRef = useRef<HTMLDivElement>(null);
 
   // Editor instance
@@ -337,29 +328,22 @@ export const OmniEditor = ({
     }
   };
 
-  // Drag-to-select handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest(".bn-editor")) {
-      setIsSelecting(true);
-      setSelectionStart({ x: e.clientX, y: e.clientY });
-      setSelectionEnd({ x: e.clientX, y: e.clientY });
-    }
+  // Drag-to-select handlers - disabled to avoid interference with normal editor interactions
+  // Users can still use native text selection (click and drag) or Ctrl+A
+  const handleMouseDown = () => {
+    // Drag box selection is disabled to prevent conflicts with:
+    // - Normal text selection in the editor
+    // - Card drag-and-drop operations
+    // - Click interactions with buttons and controls
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isSelecting && selectionStart) {
-      setSelectionEnd({ x: e.clientX, y: e.clientY });
-    }
+  const handleMouseMove = () => {
+    // Drag selection disabled
   };
 
   const handleMouseUp = () => {
-    setIsSelecting(false);
-
-    // Check if text was selected and trigger AI panel
-    const selectedText = window.getSelection()?.toString().trim();
-    if (selectedText && onSelectText) {
-      onSelectText(selectedText);
-    }
+    // Drag selection disabled
+    // No longer triggering AI panel on any text selection
   };
 
   // Handle Title Change? BlockNote doesn't manage page title.
@@ -432,16 +416,16 @@ export const OmniEditor = ({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* Drag selection overlay */}
-      {isSelecting && selectionStart && selectionEnd && (
+      {/* Drag selection overlay - disabled for better UX */}
+      {false && (
         <div
           ref={dragOverlayRef}
           className="fixed pointer-events-none z-40 bg-blue-500/20 border-2 border-blue-500 rounded"
           style={{
-            left: `${Math.min(selectionStart.x, selectionEnd.x)}px`,
-            top: `${Math.min(selectionStart.y, selectionEnd.y)}px`,
-            width: `${Math.abs(selectionEnd.x - selectionStart.x)}px`,
-            height: `${Math.abs(selectionEnd.y - selectionStart.y)}px`,
+            left: "0px",
+            top: "0px",
+            width: "0px",
+            height: "0px",
           }}
         />
       )}
@@ -457,17 +441,6 @@ export const OmniEditor = ({
           onChange={(e) => updatePageTitle(activePageId, e.target.value)}
         />
         <div className="flex gap-2">
-          <button
-            onClick={() => {
-              const selection = window.getSelection()?.toString() || "";
-              // Always open panel, even without selected text
-              onSelectText?.(selection);
-            }}
-            className="p-2 text-zinc-400 hover:text-zinc-100 bg-blue-800 rounded-md text-sm hover:bg-blue-700 transition flex items-center gap-1"
-            title="Open AI Assistant"
-          >
-            ✨ AI
-          </button>
           <button
             onClick={() => setShowSaveTemplateDialog(true)}
             className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition flex items-center gap-1"
