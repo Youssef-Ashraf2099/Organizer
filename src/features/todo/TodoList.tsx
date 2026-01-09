@@ -1,6 +1,53 @@
 import { useState, useEffect } from "react";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 
+// Helper function to calculate days left until a date
+const calculateDaysLeft = (dateStr: string): number => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const targetDate = new Date(dateStr + "T00:00");
+  const diffTime = targetDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
+};
+
+// Helper function to get days left status text and color
+const getDaysLeftDisplay = (
+  daysLeft: number
+): { text: string; color: string; bgColor: string } => {
+  if (daysLeft < 0)
+    return { text: "Overdue", color: "text-red-400", bgColor: "bg-red-500/20" };
+  if (daysLeft === 0)
+    return {
+      text: "Today!",
+      color: "text-yellow-400",
+      bgColor: "bg-yellow-500/20",
+    };
+  if (daysLeft === 1)
+    return {
+      text: "Tomorrow",
+      color: "text-yellow-300",
+      bgColor: "bg-yellow-500/20",
+    };
+  if (daysLeft <= 7)
+    return {
+      text: `${daysLeft}d left`,
+      color: "text-orange-400",
+      bgColor: "bg-orange-500/20",
+    };
+  if (daysLeft <= 30)
+    return {
+      text: `${daysLeft}d left`,
+      color: "text-emerald-400",
+      bgColor: "bg-emerald-500/20",
+    };
+  return {
+    text: `${daysLeft}d left`,
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/20",
+  };
+};
+
 type TodoItem = {
   id: string;
   title: string;
@@ -184,6 +231,12 @@ export const TodoList = () => {
                     const completedSubtasks =
                       todo.subtasks?.filter((s) => s.completed).length || 0;
                     const totalSubtasks = todo.subtasks?.length || 0;
+                    const linkedEvent = todo.linkedEventId
+                      ? calendarEvents.find((e: any) => e.id === todo.linkedEventId)
+                      : null;
+                    const daysLeft = linkedEvent
+                      ? calculateDaysLeft(linkedEvent.date)
+                      : null;
 
                     return (
                       <div
@@ -195,6 +248,15 @@ export const TodoList = () => {
                           <h4 className="font-semibold text-sm text-zinc-100 flex-1">
                             {todo.title}
                           </h4>
+                          {daysLeft !== null && (
+                            <span
+                              className={`text-xs font-bold px-2 py-1 rounded-md ${
+                                getDaysLeftDisplay(daysLeft).color
+                              } ${getDaysLeftDisplay(daysLeft).bgColor}`}
+                            >
+                              {getDaysLeftDisplay(daysLeft).text}
+                            </span>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -428,6 +490,23 @@ export const TodoList = () => {
                       </option>
                     ))}
                 </select>
+                {newTask.linkedEventId && (
+                  <div className="mt-2 text-sm font-semibold">
+                    {(() => {
+                      const linkedEvent = calendarEvents.find(
+                        (e: any) => e.id === newTask.linkedEventId
+                      );
+                      if (!linkedEvent) return null;
+                      const daysLeft = calculateDaysLeft(linkedEvent.date);
+                      const status = getDaysLeftDisplay(daysLeft);
+                      return (
+                        <span className={`${status.color} ${status.bgColor} px-3 py-1 rounded-md inline-block`}>
+                          {status.text}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Subtasks */}
@@ -834,6 +913,23 @@ export const TodoList = () => {
                       </option>
                     ))}
                 </select>
+                {selectedTodo.linkedEventId && (
+                  <div className="mt-2 text-sm font-semibold">
+                    {(() => {
+                      const linkedEvent = calendarEvents.find(
+                        (e: any) => e.id === selectedTodo.linkedEventId
+                      );
+                      if (!linkedEvent) return null;
+                      const daysLeft = calculateDaysLeft(linkedEvent.date);
+                      const status = getDaysLeftDisplay(daysLeft);
+                      return (
+                        <span className={`${status.color} ${status.bgColor} px-3 py-1 rounded-md inline-block`}>
+                          {status.text}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Subtasks */}
