@@ -28,6 +28,9 @@ export const ImageBlock = createReactBlockSpec(
       alt: {
         default: "",
       },
+      url: {
+        default: "",
+      },
     },
     content: "none",
   },
@@ -48,7 +51,10 @@ export const ImageBlock = createReactBlockSpec(
       // Load image URL
       useEffect(() => {
         const loadImage = async () => {
-          if (props.block.props.filePath) {
+          if (props.block.props.url) {
+            setImageUrl(props.block.props.url);
+            setIsLoading(false);
+          } else if (props.block.props.filePath) {
             try {
               const url = await getAssetUrl(props.block.props.filePath);
               setImageUrl(url);
@@ -62,7 +68,7 @@ export const ImageBlock = createReactBlockSpec(
           }
         };
         loadImage();
-      }, [props.block.props.filePath]);
+      }, [props.block.props.filePath, props.block.props.url]);
 
       const handleDelete = async () => {
         if (props.block.props.assetId && props.block.props.filePath) {

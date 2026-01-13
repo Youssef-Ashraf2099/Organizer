@@ -12,6 +12,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { usePageStore } from "../../core/store/pageStore";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import Database from "@tauri-apps/plugin-sql";
 import { MathBlock } from "./MathBlock";
 import { ImageBlock } from "./ImageBlock";
@@ -25,11 +26,12 @@ import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
 import { FaFilePdf } from "@react-icons/all-files/fa/FaFilePdf";
+import { FaLink } from "@react-icons/all-files/fa/FaLink";
 import { FaProjectDiagram } from "@react-icons/all-files/fa/FaProjectDiagram";
 import { FaChartBar } from "@react-icons/all-files/fa/FaChartBar";
 import { FaTasks } from "@react-icons/all-files/fa/FaTasks";
 import { FaSave } from "@react-icons/all-files/fa/FaSave";
-import { uploadFileFromPicker } from "../../core/services/fileService";
+import { uploadFileFromPicker, uploadFileFromBytes, uploadFileFromPath } from "../../core/services/fileService";
 import { useTemplateStore } from "../../core/store/templateStore";
 // I will implement a custom debounce or just setTimeout.
 // Or I can install `use-debounce`. I'll do custom ref.
@@ -60,6 +62,8 @@ export const OmniEditor = ({
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateDescription, setTemplateDescription] = useState("");
+  const [showImageUrlDialog, setShowImageUrlDialog] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
 
   // Drag-to-select state
   const dragOverlayRef = useRef<HTMLDivElement>(null);
@@ -328,6 +332,134 @@ export const OmniEditor = ({
     }
   };
 
+  // Handle Paste
+  const handlePaste = async (event: React.ClipboardEvent) => {
+    if (!editor || !activePageId) return;
+
+    const items = event.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (!file) continue;
+
+        try {
+          const bytes = await file.arrayBuffer();
+          const extension = file.name.split(".").pop() || "png";
+          const assetInfo = await uploadFileFromBytes(
+            bytes,
+            file.name,
+            extension,
+            activePageId
+          );
+
+          editor.insertBlocks(
+            [
+              {
+                type: "image",
+                props: {
+                  assetId: assetInfo.id,
+                  filePath: assetInfo.file_path,
+                  fileName: assetInfo.file_name,
+                  width: 100,
+                  alt: assetInfo.file_name,
+                },
+              },
+            ],
+            editor.getTextCursorPosition().block,
+            "after"
+          );
+        } catch (error) {
+          console.error("Paste upload failed:", error);
+        }
+      }
+    }
+  };
+
+  // Handle Drag and Drop from Tauri
+  useEffect(() => {
+    if (!editor || !activePageId) return;
+
+    const unlisten = getCurrentWindow().listen<{ paths: string[] }>(
+      "tauri://drag-drop",
+      async (event) => {
+        const { paths } = event.payload;
+        for (const filePath of paths) {
+          const extension = filePath.split(".").pop()?.toLowerCase() || "";
+          const isImage = ["png", "jpg", "jpeg", "gif", "webp"].includes(
+            extension
+          );
+          const isVideo = ["mp4", "webm", "mov"].includes(extension);
+          const isPdf = extension === "pdf";
+
+          if (isImage || isVideo || isPdf) {
+            try {
+              const assetInfo = await uploadFileFromPath(filePath, activePageId);
+              
+              const blockType = isImage ? "image" : isVideo ? "video" : "pdf";
+              const blockProps: any = {
+                assetId: assetInfo.id,
+                filePath: assetInfo.file_path,
+                fileName: assetInfo.file_name,
+              };
+
+              if (blockType === "image") {
+                blockProps.width = 100;
+                blockProps.alt = assetInfo.file_name;
+              } else if (blockType === "video") {
+                blockProps.width = 100;
+              } else {
+                blockProps.height = 600;
+              }
+
+              editor.insertBlocks(
+                [
+                  {
+                    type: blockType,
+                    props: blockProps,
+                  },
+                ],
+                editor.getTextCursorPosition().block,
+                "after"
+              );
+            } catch (e) {
+              console.error("Drag-drop upload failed:", e);
+            }
+          }
+        }
+      }
+    );
+
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [editor, activePageId]);
+
+  // Handle Insert Image from URL
+  const handleInsertImageUrl = () => {
+    if (!editor) return;
+    setShowImageUrlDialog(true);
+  };
+
+  const confirmInsertImageUrl = () => {
+    if (editor && imageUrl.trim()) {
+      editor.insertBlocks(
+        [
+          {
+            type: "image",
+            props: {
+              url: imageUrl.trim(),
+              width: 100,
+            },
+          },
+        ],
+        editor.getTextCursorPosition().block,
+        "after"
+      );
+      setShowImageUrlDialog(false);
+      setImageUrl("");
+    }
+  };
+
   // Drag-to-select handlers - disabled to avoid interference with normal editor interactions
   // Users can still use native text selection (click and drag) or Ctrl+A
   const handleMouseDown = () => {
@@ -415,6 +547,7 @@ export const OmniEditor = ({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      onPaste={handlePaste}
     >
       {/* Drag selection overlay - disabled for better UX */}
       {false && (
@@ -459,7 +592,7 @@ export const OmniEditor = ({
         </div>
       </div>
 
-      <div className="min-h-[70vh] pb-48">
+      <div className="min-h-[70vh] pb-[50vh]">
         <BlockNoteView
           editor={editor}
           onChange={handleChange}
@@ -544,7 +677,7 @@ export const OmniEditor = ({
                   subtext: "Task management board",
                 },
                 {
-                  title: "Image",
+                  title: "Upload Photo",
                   onItemClick: () => handleFileUpload("image"),
                   aliases: ["img", "picture", "photo"],
                   group: "Images",
@@ -552,29 +685,37 @@ export const OmniEditor = ({
                   subtext: "Upload and insert an image",
                 },
                 {
-                  title: "Video",
+                  title: "Image from URL",
+                  onItemClick: () => handleInsertImageUrl(),
+                  aliases: ["url", "link", "external"],
+                  group: "Images",
+                  icon: <FaLink />,
+                  subtext: "Insert an image from a web URL",
+                },
+                {
+                  title: "Upload Video",
                   onItemClick: () => handleFileUpload("video"),
                   aliases: ["movie", "clip"],
                   group: "Videos",
                   icon: <FaVideo />,
-                  subtext: "Upload and insert a video",
+                  subtext: "Upload and insert a video file",
                 },
                 {
-                  title: "PDF",
+                  title: "Embed PDF",
                   onItemClick: () => handleFileUpload("pdf"),
                   aliases: ["document", "file"],
                   group: "Documents",
                   icon: <FaFilePdf />,
-                  subtext: "Upload and embed a PDF",
+                  subtext: "Upload and embed a PDF document",
                 },
               ];
 
-              return items.filter((item) => {
+              return items.filter((item: any) => {
                 const lowerQuery = query.toLowerCase();
                 return (
-                  item.title.toLowerCase().includes(lowerQuery) ||
+                  item.title?.toLowerCase().includes(lowerQuery) ||
                   (item.aliases &&
-                    item.aliases.some((alias) =>
+                    item.aliases.some((alias: string) =>
                       alias.toLowerCase().includes(lowerQuery)
                     ))
                 );
@@ -586,53 +727,106 @@ export const OmniEditor = ({
 
       {/* Save as Template Dialog */}
       {showSaveTemplateDialog && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl p-6 w-full max-w-md border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <FaSave className="text-blue-500" />
               Save as Template
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
                   Template Name *
                 </label>
                 <input
                   type="text"
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
-                  className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
                   placeholder="Enter template name"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
                   Description
                 </label>
                 <textarea
                   value={templateDescription}
                   onChange={(e) => setTemplateDescription(e.target.value)}
-                  className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
                   placeholder="Enter template description"
                   rows={3}
                 />
               </div>
-              <div className="flex gap-2 justify-end">
+              <div className="flex gap-3 justify-end pt-2">
                 <button
                   onClick={() => {
                     setShowSaveTemplateDialog(false);
                     setTemplateName("");
                     setTemplateDescription("");
                   }}
-                  className="px-4 py-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                  className="px-4 py-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveAsTemplate}
                   disabled={!templateName.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-semibold disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
                 >
                   Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image URL Dialog */}
+      {showImageUrlDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl p-6 w-full max-w-md border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <FaLink className="text-blue-500" />
+              Insert Image URL
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Image Web Address
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmInsertImageUrl();
+                    if (e.key === "Escape") setShowImageUrlDialog(false);
+                  }}
+                  className="w-full px-4 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+                  placeholder="https://example.com/image.png"
+                />
+                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  Paste a direct link to an image (jpg, png, gif, webp).
+                </p>
+              </div>
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  onClick={() => {
+                    setShowImageUrlDialog(false);
+                    setImageUrl("");
+                  }}
+                  className="px-4 py-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmInsertImageUrl}
+                  disabled={!imageUrl.trim()}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-semibold disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
+                >
+                  Insert Image
                 </button>
               </div>
             </div>

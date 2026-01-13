@@ -83,13 +83,22 @@ impl OpenAIClient {
             temperature,
             max_tokens,
         };
+        
+        println!("Sending OpenAI request to: {}", url);
+        if let Ok(json_body) = serde_json::to_string_pretty(&body) {
+            println!("Request body:\n{}", json_body);
+        }
+
         let mut req = self.client.post(url).json(&body);
         if let Some(key) = &self.api_key {
             req = req.header("Authorization", format!("Bearer {}", key));
         }
         let resp = req.send().await?;
-        if !resp.status().is_success() {
-            return Err(OpenAIError::ApiError(format!("status {}", resp.status())));
+        let status = resp.status();
+        if !status.is_success() {
+            let error_text = resp.text().await.unwrap_or_else(|_| "Could not read error body".to_string());
+            println!("OpenAI error body: {}", error_text);
+            return Err(OpenAIError::ApiError(format!("status {}: {}", status, error_text)));
         }
         let parsed: ChatResp = resp.json().await?;
         let text = parsed.choices.get(0).map(|c| c.message.content.clone()).unwrap_or_default();

@@ -105,6 +105,44 @@ export async function uploadFileFromPath(
 }
 
 /**
+ * Upload a file from raw bytes (for paste/drag-drop)
+ */
+export async function uploadFileFromBytes(
+    bytes: ArrayBuffer,
+    fileName: string,
+    extension: string,
+    pageId?: string
+): Promise<AssetInfo> {
+    // Convert ArrayBuffer to number[] for Tauri invoke
+    const byteArray = new Uint8Array(bytes);
+    const byteList = Array.from(byteArray);
+
+    const assetInfo = await invoke<AssetInfo>('upload_asset_bytes', {
+        bytes: byteList,
+        fileName,
+        extension,
+        pageId: pageId || null,
+    });
+    
+    // Store in database
+    const db = await Database.load('sqlite:omni_workspace.db');
+    await db.execute(
+        'INSERT INTO assets (id, page_id, file_path, file_name, file_type, file_size, mime_type) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [
+            assetInfo.id,
+            pageId || null,
+            assetInfo.file_path,
+            assetInfo.file_name,
+            assetInfo.file_type,
+            assetInfo.file_size,
+            assetInfo.mime_type || null,
+        ]
+    );
+    
+    return assetInfo;
+}
+
+/**
  * Get the URL for an asset to display it
  * Returns a blob URL that can be used in img/video/iframe tags
  */

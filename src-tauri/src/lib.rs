@@ -104,6 +104,65 @@ async fn upload_file(
 }
 
 #[tauri::command]
+async fn upload_asset_bytes(
+    app: tauri::AppHandle,
+    bytes: Vec<u8>,
+    file_name: String,
+    extension: String,
+    _page_id: Option<String>,
+) -> Result<AssetInfo, String> {
+    // Get app data directory
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {}", e))?;
+    
+    let assets_dir = app_data_dir.join("assets");
+    fs::create_dir_all(&assets_dir)
+        .map_err(|e| format!("Failed to create assets directory: {}", e))?;
+
+    let asset_id = Uuid::new_v4().to_string();
+    let new_file_name = if extension.is_empty() {
+        asset_id.clone()
+    } else {
+        format!("{}.{}", asset_id, extension)
+    };
+    let dest_path = assets_dir.join(&new_file_name);
+
+    // Save bytes to disk
+    fs::write(&dest_path, bytes)
+        .map_err(|e| format!("Failed to save asset: {}", e))?;
+
+    // Get file info
+    let file_size = fs::metadata(&dest_path)
+        .map_err(|e| format!("Failed to get metadata: {}", e))?
+        .len() as i64;
+    
+    let file_type = extension.to_lowercase();
+    let mime_type = match file_type.as_str() {
+        "jpg" | "jpeg" => Some("image/jpeg".to_string()),
+        "png" => Some("image/png".to_string()),
+        "gif" => Some("image/gif".to_string()),
+        "webp" => Some("image/webp".to_string()),
+        "mp4" => Some("video/mp4".to_string()),
+        "webm" => Some("video/webm".to_string()),
+        "pdf" => Some("application/pdf".to_string()),
+        _ => None,
+    };
+
+    let relative_path = format!("assets/{}", new_file_name);
+
+    Ok(AssetInfo {
+        id: asset_id,
+        file_path: relative_path,
+        file_name,
+        file_type,
+        file_size,
+        mime_type,
+    })
+}
+
+#[tauri::command]
 async fn get_asset_url(app: tauri::AppHandle, file_path: String) -> Result<String, String> {
     let app_data_dir = app
         .path()
@@ -293,6 +352,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             upload_file,
+            upload_asset_bytes,
             get_asset_url,
             delete_asset_file,
             read_asset_file,
