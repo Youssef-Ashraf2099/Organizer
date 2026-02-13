@@ -71,10 +71,50 @@ function parseInlineFormatting(text: string): any[] {
 }
 
 /**
- * Convert markdown string to BlockNote blocks
+ * Strip HTML tags and convert common HTML elements to markdown equivalents
+ * so the block parser can handle AI-generated HTML gracefully.
+ */
+function htmlToMd(input: string): string {
+  let s = input;
+  // Convert headings
+  s = s.replace(/<h1[^>]*>(.*?)<\/h1>/gi, "# $1\n");
+  s = s.replace(/<h2[^>]*>(.*?)<\/h2>/gi, "## $1\n");
+  s = s.replace(/<h3[^>]*>(.*?)<\/h3>/gi, "### $1\n");
+  s = s.replace(/<h4[^>]*>(.*?)<\/h4>/gi, "#### $1\n");
+  s = s.replace(/<h5[^>]*>(.*?)<\/h5>/gi, "##### $1\n");
+  s = s.replace(/<h6[^>]*>(.*?)<\/h6>/gi, "###### $1\n");
+  // Bold / italic
+  s = s.replace(/<(strong|b)>(.*?)<\/\1>/gi, "**$2**");
+  s = s.replace(/<(em|i)>(.*?)<\/\1>/gi, "*$2*");
+  s = s.replace(/<code>(.*?)<\/code>/gi, "`$1`");
+  // Lists
+  s = s.replace(/<li[^>]*>(.*?)<\/li>/gi, "- $1\n");
+  s = s.replace(/<\/?[uo]l[^>]*>/gi, "\n");
+  // Line breaks & paragraphs
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<p[^>]*>(.*?)<\/p>/gi, "$1\n\n");
+  // Strip any remaining tags
+  s = s.replace(/<[^>]+>/g, "");
+  // Decode common HTML entities
+  s = s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return s;
+}
+
+/**
+ * Convert markdown string to BlockNote blocks.
+ * Also handles HTML output from the AI by converting it to markdown first.
  */
 export function markdownToBlocks(markdown: string): PartialBlock[] {
-  const lines = markdown.split("\n");
+  // If the AI returned HTML, convert to markdown first
+  const cleaned = /<[a-z][\s\S]*>/i.test(markdown)
+    ? htmlToMd(markdown)
+    : markdown;
+  const lines = cleaned.split("\n");
   const blocks: PartialBlock[] = [];
   let i = 0;
 
@@ -145,4 +185,106 @@ export function markdownToBlocks(markdown: string): PartialBlock[] {
   }
 
   return blocks;
+}
+
+/**
+ * Basic HTML to Markdown converter for paste handling
+ */
+export function htmlToMarkdown(html: string): string {
+  // Create a temporary DOM element to parse HTML
+  const div = document.createElement("div");
+  div.innerHTML = html;
+
+  let markdown = "";
+
+  // Recursive function to traverse DOM
+  function traverse(node: Node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      // Escape special markdown characters if needed, but for now simple text
+      markdown += node.textContent;
+      return;
+    }
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const tagName = el.tagName.toLowerCase();
+
+      switch (tagName) {
+        case "div":
+        case "p":
+          traverseChildren(el);
+          markdown += "\n\n";
+          break;
+        case "br":
+          markdown += "\n";
+          break;
+        case "strong":
+        case "b":
+          markdown += "**";
+          traverseChildren(el);
+          markdown += "**";
+          break;
+        case "em":
+        case "i":
+          markdown += "*";
+          traverseChildren(el);
+          markdown += "*";
+          break;
+        case "code":
+          markdown += "`";
+          traverseChildren(el);
+          markdown += "`";
+          break;
+        case "ul":
+        case "ol":
+          markdown += "\n";
+          Array.from(el.children).forEach((child) => {
+            if (child.tagName.toLowerCase() === "li") {
+              markdown += tagName === "ul" ? "- " : "1. ";
+              traverseChildren(child as HTMLElement);
+              markdown += "\n";
+            }
+          });
+          markdown += "\n";
+          break;
+        case "li":
+          // Should be handled by parent ul/ol, but if fallback:
+          markdown += "- ";
+          traverseChildren(el);
+          markdown += "\n";
+          break;
+        case "h1":
+          markdown += "\n# ";
+          traverseChildren(el);
+          markdown += "\n\n";
+          break;
+        case "h2":
+          markdown += "\n## ";
+          traverseChildren(el);
+          markdown += "\n\n";
+          break;
+        case "h3":
+          markdown += "\n### ";
+          traverseChildren(el);
+          markdown += "\n\n";
+          break;
+        case "pre":
+          markdown += "\n```\n";
+          traverseChildren(el);
+          markdown += "\n```\n";
+          break;
+        default:
+          traverseChildren(el);
+      }
+    }
+  }
+
+  function traverseChildren(el: HTMLElement) {
+    el.childNodes.forEach((child) => traverse(child));
+  }
+
+  traverse(div);
+
+  // Clean up excessive newlines
+  return markdown.replace(/\n{3,}/g, "\n\n").trim();
 }

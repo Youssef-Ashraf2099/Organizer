@@ -22,6 +22,7 @@ export interface AgentPanelState {
   selectedText: string;
   response: string;
   error?: string;
+  isExecutingTool?: boolean; // New state for "Building..." animation
 }
 
 export type BackendType = "Ollama" | "OpenAI";
@@ -30,4 +31,9 @@ export interface AiConfig {
   backend: BackendType;
   base_url: string;
   model: string;
+}
+
+export interface ToolCommand {
+  action: string;
+  params?: Record<string, any>;
 }

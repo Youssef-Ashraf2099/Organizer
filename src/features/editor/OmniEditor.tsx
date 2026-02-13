@@ -14,6 +14,7 @@ import "@blocknote/mantine/style.css";
 import { usePageStore } from "../../core/store/pageStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Database from "@tauri-apps/plugin-sql";
+import { DB_URL } from "../../core/db/sqlite";
 import { MathBlock } from "./MathBlock";
 import { ImageBlock } from "./ImageBlock";
 import { VideoBlock } from "./VideoBlock";
@@ -21,7 +22,9 @@ import { PdfBlock } from "./PdfBlock";
 import { MermaidBlock } from "./MermaidBlock";
 import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
-import { markdownToBlocks } from "./markdownParser";
+import { AudioBlock } from "./AudioBlock";
+import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
+import { aiAnimator } from "../ai/aiEditorAnimations";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
@@ -31,8 +34,19 @@ import { FaProjectDiagram } from "@react-icons/all-files/fa/FaProjectDiagram";
 import { FaChartBar } from "@react-icons/all-files/fa/FaChartBar";
 import { FaTasks } from "@react-icons/all-files/fa/FaTasks";
 import { FaSave } from "@react-icons/all-files/fa/FaSave";
-import { uploadFileFromPicker, uploadFileFromBytes, uploadFileFromPath } from "../../core/services/fileService";
+import { FaMicrophone } from "@react-icons/all-files/fa/FaMicrophone";
+import { FaChevronDown } from "@react-icons/all-files/fa/FaChevronDown";
+import { FaPrint } from "@react-icons/all-files/fa/FaPrint";
+import { FaFileCode } from "@react-icons/all-files/fa/FaFileCode";
+import { FaHtml5 } from "@react-icons/all-files/fa/FaHtml5";
+import {
+  uploadFileFromPicker,
+  uploadFileFromBytes,
+  uploadFileFromPath,
+} from "../../core/services/fileService";
 import { useTemplateStore } from "../../core/store/templateStore";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 // I will implement a custom debounce or just setTimeout.
 // Or I can install `use-debounce`. I'll do custom ref.
 
@@ -78,7 +92,7 @@ export const OmniEditor = ({
   const saveToDb = useCallback(
     async (content: PartialBlock[], pageId: string) => {
       try {
-        const db = await Database.load("sqlite:omni_workspace.db");
+        const db = await Database.load(DB_URL);
         const json = JSON.stringify(content);
         // Check if row exists, if not insert, else update?
         // Actually 'blocks' table in schema:
@@ -110,17 +124,17 @@ export const OmniEditor = ({
         // Check if exists
         const existing = await db.select<any[]>(
           "SELECT id FROM blocks WHERE page_id = $1",
-          [pageId]
+          [pageId],
         );
         if (existing.length > 0) {
           await db.execute(
             "UPDATE blocks SET content = $1 WHERE page_id = $2",
-            [json, pageId]
+            [json, pageId],
           );
         } else {
           await db.execute(
             "INSERT INTO blocks (id, page_id, content, sort_order) VALUES ($1, $2, $3, $4)",
-            [crypto.randomUUID(), pageId, json, 0]
+            [crypto.randomUUID(), pageId, json, 0],
           );
         }
         console.log("Saved page", pageId);
@@ -128,7 +142,7 @@ export const OmniEditor = ({
         console.error(e);
       }
     },
-    []
+    [],
   );
 
   const debouncedSave = useCallback(
@@ -138,7 +152,7 @@ export const OmniEditor = ({
         saveToDb(content, pageId);
       }, AUTOSAVE_DELAY) as unknown as number;
     },
-    [saveToDb]
+    [saveToDb],
   );
 
   // Initialize Editor
@@ -150,10 +164,10 @@ export const OmniEditor = ({
       setEditor(null); // Reset editor to force re-creation or update
 
       try {
-        const db = await Database.load("sqlite:omni_workspace.db");
+        const db = await Database.load(DB_URL);
         const rows = await db.select<any[]>(
           "SELECT content FROM blocks WHERE page_id = $1",
-          [activePageId]
+          [activePageId],
         );
 
         let loaded: PartialBlock[] = [];
@@ -166,9 +180,11 @@ export const OmniEditor = ({
         }
 
         // Create schema with custom blocks
+        // Create schema with custom blocks, extending defaults properly
+        const defaultSchema = BlockNoteSchema.create();
         const schema = BlockNoteSchema.create({
           blockSpecs: {
-            ...BlockNoteSchema.create().blockSpecs,
+            ...defaultSchema.blockSpecs,
             math: MathBlock(),
             image: ImageBlock(),
             video: VideoBlock(),
@@ -176,15 +192,17 @@ export const OmniEditor = ({
             mermaid: MermaidBlock(),
             chart: ChartBlock(),
             kanban: KanbanBlock(),
+            audio: AudioBlock(),
           },
-        });
+          styleSpecs: defaultSchema.styleSpecs,
+        }) as any;
 
         // Create new editor instance with custom schema
         const newEditor = BlockNoteEditor.create({
           initialContent: loaded.length > 0 ? loaded : undefined,
           schema,
         });
-        setEditor(newEditor);
+        setEditor(newEditor as any);
       } catch (e) {
         console.error(e);
       } finally {
@@ -231,44 +249,299 @@ export const OmniEditor = ({
         editor.insertBlocks(blocks, editor.document[0], "before");
       }
 
-      // Move cursor after inserted blocks
-      const lastBlock = editor.document[editor.document.length - 1];
-      if (lastBlock) {
-        // Cursor positioning - optional, not critical for animation
-        try {
-          editor.setTextCursorPosition(lastBlock, "start");
-        } catch (e) {
-          // Cursor positioning failed, but animation still works
-          console.debug("Cursor positioning skipped");
+      // Move cursor safely — avoid TextSelection error
+      try {
+        const lastBlock = editor.document[editor.document.length - 1];
+        if (lastBlock) {
+          editor.setTextCursorPosition(lastBlock, "end");
         }
+      } catch {
+        console.debug("Cursor positioning skipped (non-text block)");
       }
 
-      // Apply typing animation to newly inserted blocks
-      setTimeout(() => {
-        const blockContainer = document.querySelector(
-          '[class*="BlockNoteView"]'
-        ) as HTMLElement;
-        if (!blockContainer) return;
-
-        // Get all block elements and apply animation to the last N blocks
-        const blockElements = Array.from(
-          blockContainer.querySelectorAll("[data-node-type]")
-        ).slice(-blocks.length) as HTMLElement[];
-
-        blockElements.forEach((element, index) => {
-          element.style.opacity = "0";
-          element.style.transform = "translateY(8px) scale(0.95)";
-          element.style.filter = "blur(4px)";
-          element.style.animation = `aiTypeIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) ${
-            index * 0.1
-          }s both`;
-        });
-      }, 0);
+      // Animate all inserted blocks via the centralized animator
+      aiAnimator.handleCommand("insert_text", blocks.length);
     };
 
     window.addEventListener("insertAIResponse", handleInsertAI);
     return () => window.removeEventListener("insertAIResponse", handleInsertAI);
   }, [editor]);
+
+  // Handle Page Content Request from AgentPanel
+  useEffect(() => {
+    const handleGetPageContent = () => {
+      if (editor) {
+        try {
+          const blocks = editor.document;
+          let mdContent = "";
+
+          // Convert blocks back to a markdown-like representation
+          // so the AI has structural context (headings, lists, etc.)
+          const blockToMd = (block: any, depth = 0): string => {
+            const indent = "  ".repeat(depth);
+            let text = "";
+
+            // Extract inline text content
+            const inlineText = (() => {
+              if (!block.content) return "";
+              if (typeof block.content === "string") return block.content;
+              if (Array.isArray(block.content)) {
+                return block.content
+                  .map((c: any) => {
+                    let t = c.text || "";
+                    if (c.styles?.bold) t = `**${t}**`;
+                    if (c.styles?.italic) t = `*${t}*`;
+                    if (c.styles?.code) t = `\`${t}\``;
+                    return t;
+                  })
+                  .join("");
+              }
+              return "";
+            })();
+
+            // Format based on block type
+            switch (block.type) {
+              case "heading": {
+                const level = block.props?.level || 1;
+                text = indent + "#".repeat(level) + " " + inlineText + "\n";
+                break;
+              }
+              case "bulletListItem":
+              case "numberedListItem":
+                text = indent + "- " + inlineText + "\n";
+                break;
+              case "checkListItem":
+                text =
+                  indent +
+                  (block.props?.checked ? "- [x] " : "- [ ] ") +
+                  inlineText +
+                  "\n";
+                break;
+              case "image":
+                text =
+                  indent +
+                  `[Image: ${block.props?.caption || block.props?.url || "image"}]\n`;
+                break;
+              case "video":
+                text = indent + "[Video block]\n";
+                break;
+              case "audio":
+                text = indent + "[Audio block]\n";
+                break;
+              case "pdf":
+                text = indent + "[PDF block]\n";
+                break;
+              case "math":
+                text = indent + `$$${block.props?.latex || ""}$$\n`;
+                break;
+              case "mermaid":
+                text =
+                  indent +
+                  "```mermaid\n" +
+                  (block.props?.code || "") +
+                  "\n```\n";
+                break;
+              case "chart":
+                text = indent + "[Chart block]\n";
+                break;
+              case "kanban":
+                text = indent + "[Kanban board]\n";
+                break;
+              default:
+                // paragraph and unknown types
+                if (inlineText.trim()) {
+                  text = indent + inlineText + "\n";
+                }
+            }
+
+            // Recurse into children
+            if (block.children && block.children.length > 0) {
+              block.children.forEach((child: any) => {
+                text += blockToMd(child, depth + 1);
+              });
+            }
+
+            return text;
+          };
+
+          blocks.forEach((block: any) => {
+            const md = blockToMd(block);
+            if (md.trim()) mdContent += md + "\n";
+          });
+
+          // Store in window for AgentPanel to pick up
+          (window as any).__currentPageContent = mdContent.trim();
+        } catch (e) {
+          console.error("Failed to extract page content:", e);
+        }
+      }
+    };
+
+    window.addEventListener("getPageContent", handleGetPageContent);
+    return () =>
+      window.removeEventListener("getPageContent", handleGetPageContent);
+  }, [editor]);
+
+  // Handle AI Tool Commands
+  useEffect(() => {
+    const handleToolCommand = (event: Event) => {
+      // Wrap in simple timeout to avoid React flushSync/lifecycle conflicts
+      setTimeout(() => {
+        const customEvent = event as CustomEvent<{
+          action: string;
+          params?: any;
+        }>;
+        const { action, params } = customEvent.detail;
+
+        if (!editor) return;
+
+        console.debug("🔧 Executing Tool:", action, params);
+
+        // Helper to insert a custom block type
+        const insertBlock = (type: string, props: any = {}) => {
+          try {
+            const cursor = editor.getTextCursorPosition();
+            let targetBlock = cursor?.block;
+
+            if (!targetBlock) {
+              targetBlock = editor.document[editor.document.length - 1];
+            }
+
+            const currentBlockContent = (targetBlock?.content as any[]) || [];
+            const isEmpty =
+              currentBlockContent.length === 0 &&
+              !targetBlock?.children?.length;
+
+            if (isEmpty && targetBlock) {
+              editor.updateBlock(targetBlock, { type: type as any, props });
+            } else {
+              editor.insertBlocks(
+                [{ type: type as any, props }],
+                targetBlock,
+                "after",
+              );
+            }
+          } catch (e) {
+            console.warn("insertBlock fallback:", e);
+            const last = editor.document[editor.document.length - 1];
+            editor.insertBlocks([{ type: type as any, props }], last, "after");
+          }
+        };
+
+        let insertedBlocks = 0;
+
+        try {
+          switch (action) {
+            case "create_kanban":
+              insertBlock("kanban");
+              insertedBlocks = 1;
+              break;
+            case "create_mermaid":
+              insertBlock("mermaid", {
+                code: params?.content || "graph TD; A[Start] --> B[End];",
+              });
+              insertedBlocks = 1;
+              break;
+            case "create_chart": {
+              let chartData = params?.data;
+              if (typeof chartData === "object") {
+                chartData = JSON.stringify(chartData);
+              }
+              if (!chartData) {
+                chartData = JSON.stringify({
+                  labels: ["A", "B", "C"],
+                  datasets: [{ label: "Data", data: [10, 20, 30] }],
+                });
+              }
+              insertBlock("chart", {
+                type: params?.type || "bar",
+                data: chartData,
+              });
+              insertedBlocks = 1;
+              break;
+            }
+            case "create_math":
+              insertBlock("math", {
+                latex: params?.content || "E=mc^2",
+              });
+              insertedBlocks = 1;
+              break;
+            case "insert_image":
+              if (params?.url) {
+                insertBlock("image", {
+                  url: params.url,
+                  caption: params?.caption || "",
+                });
+                insertedBlocks = 1;
+              }
+              break;
+            case "insert_text":
+            case "append_text":
+              if (params?.content) {
+                const blocks = markdownToBlocks(params.content);
+                if (blocks.length > 0) {
+                  insertedBlocks = blocks.length;
+                  if (action === "append_text") {
+                    const lastBlock =
+                      editor.document[editor.document.length - 1];
+                    editor.insertBlocks(blocks, lastBlock, "after");
+                  } else {
+                    try {
+                      const cursor = editor.getTextCursorPosition();
+                      const targetBlock =
+                        cursor?.block ||
+                        editor.document[editor.document.length - 1];
+                      editor.insertBlocks(blocks, targetBlock, "after");
+                    } catch {
+                      const lastBlock =
+                        editor.document[editor.document.length - 1];
+                      editor.insertBlocks(blocks, lastBlock, "after");
+                    }
+                  }
+                }
+              }
+              break;
+            case "replace_text":
+              if (params?.content) {
+                const blocks = markdownToBlocks(params.content);
+                if (blocks.length > 0) {
+                  insertedBlocks = blocks.length;
+                  try {
+                    const cursor = editor.getTextCursorPosition();
+                    const targetBlock =
+                      cursor?.block ||
+                      editor.document[editor.document.length - 1];
+                    editor.insertBlocks(blocks, targetBlock, "after");
+                  } catch {
+                    const lastBlock =
+                      editor.document[editor.document.length - 1];
+                    editor.insertBlocks(blocks, lastBlock, "after");
+                  }
+                }
+              }
+              break;
+            case "update_page_title":
+              if (params?.title && activePageId) {
+                updatePageTitle(activePageId, params.title);
+              }
+              break;
+            default:
+              console.warn("Unknown tool action:", action);
+          }
+
+          // Animate via the centralized animator
+          if (insertedBlocks > 0) {
+            aiAnimator.handleCommand(action, insertedBlocks);
+          }
+        } catch (e) {
+          console.error("Failed to execute tool:", e);
+        }
+      }, 10);
+    };
+
+    window.addEventListener("aiToolCommand", handleToolCommand);
+    return () => window.removeEventListener("aiToolCommand", handleToolCommand);
+  }, [editor, activePageId]);
 
   // Handle file upload
   const handleFileUpload = async (fileType: "image" | "video" | "pdf") => {
@@ -303,7 +576,7 @@ export const OmniEditor = ({
           },
         ],
         editor.getTextCursorPosition().block,
-        "after"
+        "after",
       );
     } catch (error) {
       console.error("Failed to upload file:", error);
@@ -320,7 +593,7 @@ export const OmniEditor = ({
         templateName,
         templateDescription,
         editor.document,
-        "📄"
+        "📄",
       );
       setShowSaveTemplateDialog(false);
       setTemplateName("");
@@ -336,20 +609,29 @@ export const OmniEditor = ({
   const handlePaste = async (event: React.ClipboardEvent) => {
     if (!editor || !activePageId) return;
 
+    // Check for image files first
     const items = event.clipboardData.items;
+    let handledImage = false;
+
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf("image") !== -1) {
         const file = items[i].getAsFile();
         if (!file) continue;
 
+        handledImage = true;
         try {
           const bytes = await file.arrayBuffer();
-          const extension = file.name.split(".").pop() || "png";
+          const extension = file.name
+            ? file.name.split(".").pop() || "png"
+            : "png";
+          const fileName =
+            file.name || `pasted_image_${Date.now()}.${extension}`;
+
           const assetInfo = await uploadFileFromBytes(
             bytes,
-            file.name,
+            fileName,
             extension,
-            activePageId
+            activePageId,
           );
 
           editor.insertBlocks(
@@ -366,10 +648,40 @@ export const OmniEditor = ({
               },
             ],
             editor.getTextCursorPosition().block,
-            "after"
+            "after",
           );
         } catch (error) {
           console.error("Paste upload failed:", error);
+        }
+      }
+    }
+
+    // If no image handled, check for HTML content (e.g. from Slides/GPT)
+    if (!handledImage) {
+      const html = event.clipboardData.getData("text/html");
+      if (html) {
+        event.preventDefault(); // Stop default plain text paste
+        const markdown = htmlToMarkdown(html);
+        console.debug("Parsed Paste Markdown:", markdown);
+
+        const blocks = markdownToBlocks(markdown);
+        if (blocks.length > 0) {
+          editor.insertBlocks(
+            blocks,
+            editor.getTextCursorPosition().block,
+            "after",
+          );
+        } else {
+          // Fallback to text if conversion yields nothing useful?
+          // Or maybe just let it paste as text if markdown is empty?
+          // If markdown is empty but HTML existed, maybe it was just tags?
+          const text = event.clipboardData.getData("text/plain");
+          if (text)
+            editor.insertBlocks(
+              [{ type: "paragraph", content: text }],
+              editor.getTextCursorPosition().block,
+              "after",
+            );
         }
       }
     }
@@ -386,15 +698,18 @@ export const OmniEditor = ({
         for (const filePath of paths) {
           const extension = filePath.split(".").pop()?.toLowerCase() || "";
           const isImage = ["png", "jpg", "jpeg", "gif", "webp"].includes(
-            extension
+            extension,
           );
           const isVideo = ["mp4", "webm", "mov"].includes(extension);
           const isPdf = extension === "pdf";
 
           if (isImage || isVideo || isPdf) {
             try {
-              const assetInfo = await uploadFileFromPath(filePath, activePageId);
-              
+              const assetInfo = await uploadFileFromPath(
+                filePath,
+                activePageId,
+              );
+
               const blockType = isImage ? "image" : isVideo ? "video" : "pdf";
               const blockProps: any = {
                 assetId: assetInfo.id,
@@ -419,14 +734,14 @@ export const OmniEditor = ({
                   },
                 ],
                 editor.getTextCursorPosition().block,
-                "after"
+                "after",
               );
             } catch (e) {
               console.error("Drag-drop upload failed:", e);
             }
           }
         }
-      }
+      },
     );
 
     return () => {
@@ -453,15 +768,160 @@ export const OmniEditor = ({
           },
         ],
         editor.getTextCursorPosition().block,
-        "after"
+        "after",
       );
       setShowImageUrlDialog(false);
       setImageUrl("");
     }
   };
 
+  const exportToPdf = async () => {
+    const editorElement = document.querySelector(".bn-editor") as HTMLElement;
+    if (!editorElement) {
+      console.error("Editor element not found");
+      return;
+    }
+
+    const applyExportStyles = (root: HTMLElement) => {
+      const previousStyles = {
+        color: root.style.color,
+        backgroundColor: root.style.backgroundColor,
+      };
+
+      root.style.color = "#111111";
+      root.style.backgroundColor = "#ffffff";
+      root.classList.add("export-to-pdf");
+
+      const styleTag = document.createElement("style");
+      styleTag.setAttribute("data-export-style", "true");
+      styleTag.textContent = `
+        .export-to-pdf, .export-to-pdf * {
+          color: #111111 !important;
+        }
+        .export-to-pdf pre, .export-to-pdf code {
+          background: #f4f4f5 !important;
+          color: #111111 !important;
+        }
+        .export-to-pdf table {
+          color: #111111 !important;
+        }
+      `;
+
+      document.head.appendChild(styleTag);
+
+      return () => {
+        root.style.color = previousStyles.color;
+        root.style.backgroundColor = previousStyles.backgroundColor;
+        root.classList.remove("export-to-pdf");
+        styleTag.remove();
+      };
+    };
+
+    const hideEmptyBlocksForExport = (root: HTMLElement) => {
+      const blockElements = Array.from(
+        root.querySelectorAll<HTMLElement>(".bn-block"),
+      );
+      const targets =
+        blockElements.length > 0
+          ? blockElements
+          : Array.from(root.querySelectorAll<HTMLElement>("[data-id]"));
+
+      const hiddenBlocks: Array<{
+        element: HTMLElement;
+        previousDisplay: string;
+      }> = [];
+
+      const hasMeaningfulContent = (element: HTMLElement) => {
+        const contentElement =
+          element.querySelector<HTMLElement>(
+            ".bn-block-content, .bn-inline-content",
+          ) ?? element;
+
+        const text = (contentElement.textContent || "")
+          .replace(/\u200B/g, "")
+          .trim();
+
+        if (text.length > 0) return true;
+
+        return Boolean(
+          contentElement.querySelector(
+            "img, video, audio, iframe, svg, canvas, table, pre, code, blockquote, hr, ul, ol, li, .katex",
+          ),
+        );
+      };
+
+      targets.forEach((element) => {
+        if (!hasMeaningfulContent(element)) {
+          hiddenBlocks.push({
+            element,
+            previousDisplay: element.style.display,
+          });
+          element.style.display = "none";
+          element.setAttribute("data-export-hidden", "true");
+        }
+      });
+
+      return () => {
+        hiddenBlocks.forEach(({ element, previousDisplay }) => {
+          element.style.display = previousDisplay;
+          element.removeAttribute("data-export-hidden");
+        });
+      };
+    };
+
+    let restoreHiddenBlocks: (() => void) | null = null;
+    let restoreExportStyles: (() => void) | null = null;
+
+    try {
+      restoreExportStyles = applyExportStyles(editorElement);
+      restoreHiddenBlocks = hideEmptyBlocksForExport(editorElement);
+
+      const canvas = await html2canvas(editorElement, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff", // Ensure white background
+        windowWidth: editorElement.scrollWidth,
+        windowHeight: editorElement.scrollHeight,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+
+      // Calculate PDF dimensions (A4 reference)
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      // Create PDF
+      const pdf = new jsPDF("p", "mm", "a4");
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // First page
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      // Add extra pages if needed
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const pages = usePageStore.getState().pages;
+      const title = activePageId ? pages[activePageId]?.title : "Document";
+      pdf.save(`${title}.pdf`);
+    } catch (error) {
+      console.error("PDF export failed:", error);
+      alert("Failed to export PDF. See console for details.");
+    } finally {
+      restoreExportStyles?.();
+      restoreHiddenBlocks?.();
+    }
+  };
+
   // Drag-to-select handlers - disabled to avoid interference with normal editor interactions
-  // Users can still use native text selection (click and drag) or Ctrl+A
   const handleMouseDown = () => {
     // Drag box selection is disabled to prevent conflicts with:
     // - Normal text selection in the editor
@@ -510,7 +970,7 @@ export const OmniEditor = ({
       },
       shadow: "#18181b",
       border: "#27272a",
-      sideMenu: "#a1a1aa", // Color of the drag handle icon itself
+      sideMenu: "#71717a", // Color of the drag handle icon (zinc-500 for better visibility)
       highlights: {
         gray: { text: "#9b9a97", background: "transparent" },
         brown: { text: "#64473a", background: "transparent" },
@@ -582,13 +1042,83 @@ export const OmniEditor = ({
             <FaSave size={14} />
             Save as Template
           </button>
-          <button
-            onClick={() => window.print()}
-            className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition"
-            title="Export to PDF"
-          >
-            Export PDF
-          </button>
+          <div className="relative group z-50">
+            <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-black/20">
+              Export
+              <FaChevronDown className="text-xs text-zinc-400 group-hover:rotate-180 transition-transform duration-300" />
+            </button>
+
+            <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right scale-95 group-hover:scale-100">
+              <button
+                onClick={exportToPdf}
+                className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+              >
+                <FaPrint className="text-zinc-500" />
+                <span>Export to PDF</span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  const markdown = await editor?.blocksToMarkdownLossy(
+                    editor.document,
+                  );
+                  if (!markdown) return;
+                  const blob = new Blob([markdown], { type: "text/markdown" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${usePageStore.getState().pages[activePageId]?.title || "document"}.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+              >
+                <FaFileCode className="text-blue-500" />
+                <span>Export Markdown</span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  // Quick HTML export
+                  const html = await editor?.blocksToHTMLLossy(editor.document);
+                  if (!html) return;
+
+                  // Add basic styling for the HTML export
+                  const fullHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <title>${usePageStore.getState().pages[activePageId]?.title || "Document"}</title>
+                        <style>
+                            body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1a1a1a; line-height: 1.6; }
+                            pre { background: #f4f4f5; padding: 15px; border-radius: 8px; overflow-x: auto; }
+                            img { max-width: 100%; height: auto; border-radius: 8px; }
+                            blockquote { border-left: 4px solid #e4e4e7; padding-left: 15px; margin-left: 0; color: #52525b; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>${usePageStore.getState().pages[activePageId]?.title || "Document"}</h1>
+                        ${html}
+                    </body>
+                    </html>
+                   `;
+
+                  const blob = new Blob([fullHtml], { type: "text/html" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${usePageStore.getState().pages[activePageId]?.title || "document"}.html`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+              >
+                <FaHtml5 className="text-orange-500" />
+                <span>Export HTML</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -614,7 +1144,7 @@ export const OmniEditor = ({
                         },
                       ],
                       editor.getTextCursorPosition().block,
-                      "after"
+                      "after",
                     );
                   },
                   aliases: ["latex", "equation", "formula"],
@@ -632,7 +1162,7 @@ export const OmniEditor = ({
                         },
                       ],
                       editor.getTextCursorPosition().block,
-                      "after"
+                      "after",
                     );
                   },
                   aliases: ["flowchart", "diagram", "architecture", "erd"],
@@ -650,7 +1180,7 @@ export const OmniEditor = ({
                         },
                       ],
                       editor.getTextCursorPosition().block,
-                      "after"
+                      "after",
                     );
                   },
                   aliases: ["bar", "line", "pie", "graph"],
@@ -668,7 +1198,7 @@ export const OmniEditor = ({
                         },
                       ],
                       editor.getTextCursorPosition().block,
-                      "after"
+                      "after",
                     );
                   },
                   aliases: ["task", "board", "jira", "trello"],
@@ -708,6 +1238,24 @@ export const OmniEditor = ({
                   icon: <FaFilePdf />,
                   subtext: "Upload and embed a PDF document",
                 },
+                {
+                  title: "Audio Recording",
+                  onItemClick: () => {
+                    editor.insertBlocks(
+                      [
+                        {
+                          type: "audio",
+                        },
+                      ],
+                      editor.getTextCursorPosition().block,
+                      "after",
+                    );
+                  },
+                  aliases: ["record", "voice", "sound", "microphone"],
+                  group: "Audio",
+                  icon: <FaMicrophone />,
+                  subtext: "Record or upload audio",
+                },
               ];
 
               return items.filter((item: any) => {
@@ -716,7 +1264,7 @@ export const OmniEditor = ({
                   item.title?.toLowerCase().includes(lowerQuery) ||
                   (item.aliases &&
                     item.aliases.some((alias: string) =>
-                      alias.toLowerCase().includes(lowerQuery)
+                      alias.toLowerCase().includes(lowerQuery),
                     ))
                 );
               });

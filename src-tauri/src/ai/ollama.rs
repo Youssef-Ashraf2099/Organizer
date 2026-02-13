@@ -15,7 +15,7 @@ pub enum OllamaError {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
-    pub role: String, // "user" or "assistant"
+    pub role: String, // "system", "user", or "assistant"
     pub content: String,
 }
 
@@ -177,7 +177,6 @@ impl OllamaClient {
     /// Chat with the model (conversational interface)
     pub async fn chat(
         &self,
-        message: &str,
         messages: Vec<ChatMessage>,
     ) -> OllamaResult<String> {
         #[derive(Serialize)]
@@ -192,15 +191,9 @@ impl OllamaClient {
             message: ChatMessage,
         }
 
-        let mut chat_messages = messages;
-        chat_messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: message.to_string(),
-        });
-
         let request = ChatRequest {
             model: self.default_model.clone(),
-            messages: chat_messages,
+            messages,
             stream: false,
         };
 

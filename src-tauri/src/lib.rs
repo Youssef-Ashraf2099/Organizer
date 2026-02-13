@@ -19,6 +19,54 @@ pub struct AssetInfo {
     pub mime_type: Option<String>,
 }
 
+fn sqlite_url() -> &'static str {
+    if cfg!(debug_assertions) {
+        "sqlite:omni_workspace_dev.db"
+    } else {
+        "sqlite:omni_workspace.db"
+    }
+}
+
+fn sqlite_file_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "omni_workspace_dev.db"
+    } else {
+        "omni_workspace.db"
+    }
+}
+
+fn maybe_migrate_legacy_db(app: &tauri::AppHandle) {
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("Failed to get app data directory: {e}");
+            return;
+        }
+    };
+
+    let target_name = sqlite_file_name();
+    let legacy_name = "omni_workspace.db";
+
+    if target_name == legacy_name {
+        return;
+    }
+
+    let target_path = app_data_dir.join(target_name);
+    let legacy_path = app_data_dir.join(legacy_name);
+
+    if target_path.exists() || !legacy_path.exists() {
+        return;
+    }
+
+    if let Err(e) = fs::copy(&legacy_path, &target_path) {
+        eprintln!(
+            "Failed to migrate legacy database from {} to {}: {e}",
+            legacy_path.display(),
+            target_path.display()
+        );
+    }
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -310,20 +358,26 @@ fn ai_set_state(state: tauri::State<'_, AiState>, backend: BackendType, base_url
 #[tauri::command]
 async fn ai_chat(
     state: tauri::State<'_, AiState>,
-    message: String,
-    history: Vec<ChatMessage>,
+    messages: Vec<ChatMessage>,
+    model: Option<String>,
+    backend: Option<BackendType>,
 ) -> Result<String, String> {
     let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
     
-    match cfg.backend {
+    let target_backend = backend.unwrap_or(cfg.backend);
+    let target_model = model.unwrap_or(cfg.model);
+    
+    // Note: We currently reuse the configured base_url. 
+    // In the future, we might want to pass base_url override or have separate configs per backend.
+    
+    match target_backend {
         BackendType::Ollama => {
-            let client = OllamaClient::new(Some(cfg.base_url.clone()), cfg.model.clone());
-            client.chat(&message, history).await.map_err(|e| e.to_string())
+            let client = OllamaClient::new(Some(cfg.base_url.clone()), target_model);
+            client.chat(messages).await.map_err(|e| e.to_string())
         }
         BackendType::OpenAI => {
-            // For now, OpenAI-compatible servers use the generate endpoint
-            let client = OpenAIClient::new(cfg.base_url.clone(), cfg.model.clone(), None);
-            client.generate(&message, Some(0.7), Some(2000)).await.map_err(|e| e.to_string())
+            let client = OpenAIClient::new(cfg.base_url.clone(), target_model, None);
+            client.chat(messages).await.map_err(|e| e.to_string())
         }
     }
 }
@@ -340,10 +394,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:omni_workspace.db", database::schema::get_migrations())
+                .add_migrations(sqlite_url(), database::schema::get_migrations())
                 .build(),
         )
         .setup(|app| {
+            maybe_migrate_legacy_db(app.handle());
             // Initialize AI state with default configuration
             app.manage(AiState { config: Mutex::new(AiConfig::default()) });
             

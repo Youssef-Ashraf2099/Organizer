@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { FaPlus } from "@react-icons/all-files/fa/FaPlus";
-import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
+import { motion } from "framer-motion";
 import { FaPaperPlane } from "@react-icons/all-files/fa/FaPaperPlane";
 import { FaCopy } from "@react-icons/all-files/fa/FaCopy";
 import { FaCheck } from "@react-icons/all-files/fa/FaCheck";
-import { FaCog } from "@react-icons/all-files/fa/FaCog";
 import { FaFileUpload } from "@react-icons/all-files/fa/FaFileUpload";
+import { FaRobot } from "@react-icons/all-files/fa/FaRobot";
+import { FaUser } from "@react-icons/all-files/fa/FaUser";
+import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 // @ts-ignore
@@ -15,115 +16,92 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 // @ts-ignore
 import * as pdfjsLib from "pdfjs-dist";
 import { aiService } from "./aiService";
-import { invoke } from "@tauri-apps/api/core";
-
-type Message = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-};
-
-type Conversation = {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-};
+import { useChatStore } from "../../core/store/chatStore";
+import { BackendType } from "./types";
 
 export const AIChat = () => {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  const conversations = useChatStore((s) => s.conversations);
+  const currentConvId = useChatStore((s) => s.activeConversationId);
+  const addConversation = useChatStore((s) => s.addConversation);
+  const addMessage = useChatStore((s) => s.addMessage);
+  const setActiveConversation = useChatStore((s) => s.setActiveConversation);
+
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
-  const [isOllamaRunning, setIsOllamaRunning] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:1234");
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isBackendHealthy, setIsBackendHealthy] = useState(false);
+  const [backend, setBackend] = useState<BackendType>("OpenAI");
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
   const [typingContent, setTypingContent] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Configure pdf.js worker
+  // Initialize PDF worker
   useEffect(() => {
-    // Avoid reassigning if already set
     if (!(pdfjsLib as any).GlobalWorkerOptions?.workerSrc) {
       (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
         /* @vite-ignore */ new URL(
           "pdfjs-dist/build/pdf.worker.min.js",
-          import.meta.url
+          import.meta.url,
         ).toString();
     }
   }, []);
 
-  // Load conversations from localStorage on mount
+  // Initialize: Ensure at least one conversation exists or select one
   useEffect(() => {
-    const saved = localStorage.getItem("ai-conversations");
-    if (saved) {
-      const loadedConvs = JSON.parse(saved);
-      console.log(
-        "💬 Loaded",
-        loadedConvs.length,
-        "conversations from localStorage"
-      );
-      setConversations(loadedConvs);
-    } else {
-      console.log("💬 No saved conversations found");
+    if (conversations.length === 0 && !currentConvId) {
+      // Don't auto-create here to avoid loops, sidebar handles creation
+    } else if (conversations.length > 0 && !currentConvId) {
+      setActiveConversation(conversations[0].id);
     }
-    setIsInitialized(true);
-  }, []);
+  }, [conversations, currentConvId, setActiveConversation]);
 
-  // Save conversations to localStorage whenever they change (after initial load)
-  useEffect(() => {
-    if (isInitialized) {
-      localStorage.setItem("ai-conversations", JSON.stringify(conversations));
-      console.log(
-        "💾 Saved",
-        conversations.length,
-        "conversations to localStorage"
-      );
-    }
-  }, [conversations, isInitialized]);
-
-  // Load models and check health
+  // Load models
   useEffect(() => {
     const loadModels = async () => {
-      const running = await aiService.healthCheck();
-      setIsOllamaRunning(running);
+      const cfg = await aiService.getState().catch(() => null);
+      if (cfg) {
+        setBackend(cfg.backend);
+        if (cfg.model && !selectedModel) {
+          setSelectedModel(cfg.model);
+        }
+      }
 
+      const running = await aiService.healthCheck();
+      setIsBackendHealthy(running);
       if (running) {
         const modelList = await aiService.listModels();
         setModels(modelList);
         if (modelList.length > 0 && !selectedModel) {
-          setSelectedModel(modelList[0]);
+          const preferred =
+            cfg?.model && modelList.includes(cfg.model)
+              ? cfg.model
+              : modelList[0];
+          setSelectedModel(preferred);
         }
       }
     };
-
     loadModels();
-    const interval = setInterval(loadModels, 10000); // Check every 10s
+    const interval = setInterval(loadModels, 10000);
     return () => clearInterval(interval);
   }, [selectedModel]);
 
-  // Auto-scroll to bottom
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [currentConvId, conversations]);
+  }, [currentConvId, conversations, typingContent]);
 
   useEffect(() => {
     setTypingMessageId(null);
     setTypingContent("");
   }, [currentConvId]);
 
-  // Animate assistant responses with a simple typing effect
+  // Typing effect
   useEffect(() => {
     if (!typingMessageId) return;
-
     const conv = conversations.find((c) => c.id === currentConvId);
     const message = conv?.messages.find((m) => m.id === typingMessageId);
     if (!message) return;
@@ -135,153 +113,211 @@ export const AIChat = () => {
     const interval = setInterval(() => {
       index += step;
       setTypingContent(fullText.slice(0, index));
-
       if (index >= fullText.length) {
         clearInterval(interval);
         setTypingMessageId(null);
         setTypingContent("");
       }
     }, 12);
-
     return () => clearInterval(interval);
   }, [typingMessageId, conversations, currentConvId]);
 
-  // Keep view pinned to the bottom while the typing effect runs
-  useEffect(() => {
-    if (typingMessageId) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [typingContent, typingMessageId]);
-
   const currentConv = conversations.find((c) => c.id === currentConvId);
-
-  const createNewChat = () => {
-    const newConv: Conversation = {
-      id: crypto.randomUUID(),
-      title: "New Chat",
-      messages: [],
-      createdAt: Date.now(),
-    };
-    setConversations([newConv, ...conversations]);
-    setCurrentConvId(newConv.id);
-  };
-
-  const deleteConversation = (id: string) => {
-    if (confirm("Delete this conversation?")) {
-      setConversations(conversations.filter((c) => c.id !== id));
-      if (currentConvId === id) {
-        setCurrentConvId(conversations[0]?.id || null);
-      }
-    }
-  };
 
   const sendMessage = async () => {
     if (
       !inputValue.trim() ||
       !currentConvId ||
       isLoading ||
-      !isOllamaRunning ||
+      !isBackendHealthy ||
       !selectedModel
     )
       return;
 
     const filesContext = await buildFilesContext();
-    const formatHint =
-      "\n\nPlease format the answer in GitHub-flavored Markdown with clear headings, bullet points, numbered lists when appropriate, and fenced code blocks for any code. Keep responses concise and structured.";
-
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: inputValue,
-      timestamp: Date.now(),
-    };
-
+    const pageContext = await fetchPageContext();
     const messageText = inputValue;
-    setConversations(
-      conversations.map((c) =>
-        c.id === currentConvId
-          ? {
-              ...c,
-              messages: [...c.messages, userMessage],
-              title:
-                c.messages.length === 0 ? messageText.slice(0, 30) : c.title,
-            }
-          : c
-      )
-    );
+
+    // Add User Message (UI-visible version — no tool defs)
+    addMessage(currentConvId, {
+      role: "user",
+      content: messageText + (filesContext ? "\n\n[Attached Files]" : ""),
+    });
 
     setInputValue("");
     setIsLoading(true);
 
     try {
-      // Get conversation history for context
-      const conv = conversations.find((c) => c.id === currentConvId);
-      const messages = conv?.messages || [];
+      const conv = useChatStore
+        .getState()
+        .conversations.find((c) => c.id === currentConvId);
+      const currentMessages = conv ? conv.messages : [];
+      const historyForAI = currentMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
-      // Call Ollama API
-      const response = await invoke<string>("ai_chat", {
-        message: `${messageText}${filesContext}${formatHint}`,
-        model: selectedModel,
-        base_url: baseUrl,
-        history: messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      }).catch(async () => {
-        // Fallback to direct HTTP call if Tauri command not available
-        const res = await fetch(`${baseUrl}/api/generate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: selectedModel,
-            prompt: `${messageText}${filesContext}${formatHint}`,
-            stream: false,
-          }),
-        });
-        const data = await res.json();
-        return data.response;
+      // Build final messages array: system → history → user
+      const messages: { role: string; content: string }[] = [];
+
+      // SYSTEM message with tool definitions (never in user content)
+      messages.push({
+        role: "system",
+        content: aiService.getToolDefinitions(),
       });
 
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: response || "No response received",
-        timestamp: Date.now(),
-      };
+      // Conversation history
+      messages.push(...historyForAI);
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === currentConvId
-            ? { ...c, messages: [...c.messages, assistantMessage] }
-            : c
-        )
-      );
-      setTypingMessageId(assistantMessage.id);
-      setTypingContent("");
-      setUploadedFiles([]);
-    } catch (error) {
-      console.error("Failed to get AI response:", error);
-      const errorMessage: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
+      // Current user message with context (but NO tool defs)
+      messages.push({
+        role: "user",
         content:
-          "Error: Failed to get response from AI. Please check if Ollama is running.",
-        timestamp: Date.now(),
-      };
+          messageText +
+          (pageContext ? `\n${pageContext}` : "") +
+          (filesContext ? `\n${filesContext}` : ""),
+      });
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === currentConvId
-            ? { ...c, messages: [...c.messages, errorMessage] }
-            : c
-        )
-      );
+      const response = await aiService.chat(messages, selectedModel, backend);
+
+      // --- Hallucination guard ---
+      if (aiService.isHallucination(response)) {
+        addMessage(currentConvId, {
+          role: "assistant",
+          content:
+            "I had trouble generating that. Please try rephrasing your request.",
+        });
+        return;
+      }
+
+      console.debug("🤖 AI Raw Response:", response);
+      const parsed = aiService.extractJsonFromResponse(response);
+      const commands = parsed?.commands ?? [];
+      const textResponse = parsed?.textResponse ?? "";
+
+      // Dispatch tool commands to the editor
+      if (commands.length > 0) {
+        for (const command of commands) {
+          window.dispatchEvent(
+            new CustomEvent("aiToolCommand", { detail: command }),
+          );
+        }
+      }
+
+      // Show the right message in the chat
+      const didEditPage = commands.length > 0;
+
+      if (didEditPage && textResponse) {
+        addMessage(currentConvId, {
+          role: "assistant",
+          content: textResponse + "\n\n✅ Changes applied to the page.",
+        });
+      } else if (didEditPage) {
+        addMessage(currentConvId, {
+          role: "assistant",
+          content: "✅ I've updated the page for you.",
+        });
+      } else {
+        addMessage(currentConvId, {
+          role: "assistant",
+          content: textResponse || response || "No response content.",
+        });
+      }
+
+      // Typing effect for the new message
+      setTimeout(() => {
+        const updatedConv = useChatStore
+          .getState()
+          .conversations.find((c) => c.id === currentConvId);
+        const lastMsg = updatedConv?.messages[updatedConv.messages.length - 1];
+        if (lastMsg && lastMsg.role === "assistant") {
+          setTypingMessageId(lastMsg.id);
+        }
+      }, 50);
+
+      setUploadedFiles([]);
+    } catch (e) {
+      console.error(e);
+      addMessage(currentConvId, {
+        role: "assistant",
+        content: "Error: Failed to get response.",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Component to render markdown with syntax highlighting
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      const newFiles = Array.from(files).filter((file) => {
+        const isImage = file.type.startsWith("image/");
+        const isPdf = file.type === "application/pdf";
+        return isImage || isPdf;
+      });
+      setUploadedFiles((prev) => [...prev, ...newFiles]);
+    }
+  };
+
+  const extractPdfText = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await (pdfjsLib as any).getDocument({ data: arrayBuffer })
+      .promise;
+    let fullText = "";
+    for (let i = 1; i <= Math.min(pdf.numPages, 5); i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map((item: any) => item.str).join(" ") + "\n";
+    }
+    return fullText;
+  };
+
+  const buildFilesContext = async () => {
+    if (!uploadedFiles.length) return "";
+    let ctx = "";
+    for (const file of uploadedFiles) {
+      if (file.type === "application/pdf") {
+        const text = await extractPdfText(file);
+        ctx += `\n\nFile: ${file.name}\n${text.slice(0, 5000)}...`;
+      }
+    }
+    return ctx ? `\n\nContext from files:${ctx}` : "";
+  };
+
+  const fetchPageContext = async () => {
+    let pageContent = "";
+    try {
+      const pageContentEvent = new CustomEvent("getPageContent");
+      window.dispatchEvent(pageContentEvent);
+
+      for (let i = 0; i < 10; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const contentFromWindow = (window as any).__currentPageContent;
+        if (contentFromWindow) {
+          pageContent = contentFromWindow;
+          delete (window as any).__currentPageContent;
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch page content:", e);
+    }
+
+    return pageContent
+      ? `\n\nCURRENT PAGE CONTENT:\n${pageContent.slice(0, 15000)}`
+      : "";
+  };
+
+  const removeUploadedFile = (index: number) => {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const copyToClipboard = (text: string, messageId: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMessageId(messageId);
+    setTimeout(() => setCopiedMessageId(null), 2000);
+  };
+
   const MarkdownRenderer = ({ content }: { content: string }) => (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -356,386 +392,231 @@ export const AIChat = () => {
     </ReactMarkdown>
   );
 
-  const copyToClipboard = (text: string, messageId: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedMessageId(messageId);
-    setTimeout(() => setCopiedMessageId(null), 2000);
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (files) {
-      const newFiles = Array.from(files).filter((file) => {
-        const isImage = file.type.startsWith("image/");
-        const isPdf = file.type === "application/pdf";
-        return isImage || isPdf;
-      });
-      setUploadedFiles((prev) => [...prev, ...newFiles]);
-    }
-  };
-
-  const extractPdfText = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await (pdfjsLib as any).getDocument({ data: arrayBuffer })
-      .promise;
-    const pageTexts: string[] = [];
-    const pageCount = Math.min(pdf.numPages, 8); // limit pages for performance
-    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const content = await page.getTextContent();
-      const strings = content.items
-        .map((item: any) => (item.str ? item.str.toString() : ""))
-        .filter(Boolean);
-      pageTexts.push(strings.join(" "));
-    }
-    return pageTexts.join("\n\n");
-  };
-
-  const buildFilesContext = async () => {
-    if (!uploadedFiles.length) return "";
-
-    const pdfs = uploadedFiles.filter((f) => f.type === "application/pdf");
-    const contexts: string[] = [];
-
-    for (const pdf of pdfs) {
-      try {
-        const text = await extractPdfText(pdf);
-        if (text.trim()) {
-          contexts.push(`File: ${pdf.name}\n${text.substring(0, 12000)}`);
-        }
-      } catch (err) {
-        console.warn("Failed to read PDF", pdf.name, err);
-      }
-    }
-
-    if (!contexts.length) return "";
-    return `\n\nAttached PDF context (summarized):\n\n${contexts.join(
-      "\n\n---\n\n"
-    )}\n\nUse this context in your answer.`;
-  };
-
-  const removeUploadedFile = (index: number) => {
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // const saveMessageToPage = async (content: string) => {
-  //   const newPageId = await addPage(null, null);
-  //   if (newPageId) {
-  //     setActivePage(newPageId);
-  //   }
-  // };
-
-  // const saveConversationToPage = async () => {
-  //   if (!currentConv) return;
-
-  //   const conversationText = currentConv.messages
-  //     .map(m => `${m.role === 'user' ? '👤 You' : '🤖 AI'}:\n${m.content}`)
-  //     .join('\n\n---\n\n');
-
-  //   const newPageId = await addPage(null, null);
-  //   if (newPageId) {
-  //     setActivePage(newPageId);
-  //   }
-  // };
-
   return (
-    <div className="h-full flex gap-0 bg-gradient-to-b from-[#0d1117] via-[#0b1020] to-[#080c15] text-slate-100">
-      {/* Sidebar - Conversations List */}
-      <div className="w-64 flex flex-col border-r border-zinc-800 bg-zinc-900">
-        {/* Header with Settings */}
-        <div className="p-3 border-b border-zinc-800 flex items-center gap-2">
-          <button
-            onClick={createNewChat}
-            className="flex-1 px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg flex items-center justify-center gap-2 font-medium transition text-sm"
-          >
-            <FaPlus size={14} />
-            New Chat
-          </button>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-2 hover:bg-zinc-800 rounded-lg transition"
-            title="Settings"
-          >
-            <FaCog size={14} className={showSettings ? "text-blue-500" : ""} />
-          </button>
-        </div>
-
-        {/* Settings Panel */}
-        {showSettings && (
-          <div className="p-3 border-b border-zinc-800 space-y-2 bg-zinc-800/50">
-            {/* Model Selection */}
-            <div>
-              <label className="text-xs font-medium text-zinc-400">Model</label>
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                disabled={!isOllamaRunning}
-                className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-100 disabled:opacity-50"
-              >
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Base URL */}
-            <div>
-              <label className="text-xs font-medium text-zinc-400">URL</label>
-              <input
-                type="text"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-100"
-              />
-            </div>
-
-            {/* Status */}
-            <div className="flex items-center gap-2 text-xs">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  isOllamaRunning ? "bg-emerald-500" : "bg-red-500"
-                }`}
-              />
-              <span className="text-zinc-400">
-                {isOllamaRunning ? "Connected" : "Disconnected"}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto space-y-1 px-2 py-2">
-          {conversations.length === 0 ? (
-            <div className="text-center text-zinc-500 text-xs py-8">
-              No conversations yet
-            </div>
-          ) : (
-            conversations.map((conv) => (
-              <div
-                key={conv.id}
-                className={`group p-2.5 rounded-lg cursor-pointer transition flex items-start justify-between gap-2 ${
-                  currentConvId === conv.id
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-400 hover:bg-zinc-800/50"
-                }`}
-                onClick={() => setCurrentConvId(conv.id)}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{conv.title}</p>
-                  <p className="text-[10px] text-zinc-500">
-                    {new Date(conv.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteConversation(conv.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition"
-                >
-                  <FaTrash size={12} />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+    <div className="h-full flex flex-col bg-transparent text-slate-100 font-sans overflow-hidden relative">
+      <div className="flex-1 flex flex-col relative z-0 min-h-0">
         {!currentConv ? (
-          <div className="flex-1 flex items-center justify-center text-center">
-            <div>
-              <p className="text-2xl font-bold text-zinc-100 mb-4">
-                No conversation selected
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="max-w-md"
+            >
+              <div className="w-20 h-20 mx-auto mb-6 rounded-3xl bg-gradient-to-br from-blue-500/20 to-purple-600/20 flex items-center justify-center border border-white/10 backdrop-blur-3xl shadow-2xl">
+                <FaRobot className="text-4xl text-blue-400" />
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-3">
+                How can I help you today?
+              </h2>
+              <p className="text-zinc-400 mb-8">
+                I can help you analyze documents, generate content, or answer
+                questions.
               </p>
               <button
-                onClick={createNewChat}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium transition"
+                onClick={addConversation}
+                className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-2xl font-semibold transition-all shadow-lg hover:shadow-blue-500/25 hover:-translate-y-1"
               >
-                Start New Chat
+                Start Conversation
               </button>
-            </div>
+            </motion.div>
           </div>
         ) : (
           <>
-            {/* Chat Header */}
-            <div className="border-b border-zinc-800 p-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-zinc-100">
+            {/* Header */}
+            <div className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-white/5 backdrop-blur-md flex-shrink-0 z-10">
+              <h2 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                 {currentConv.title}
               </h2>
-              {/* {currentConv.messages.length > 0 && (
-                <button
-                  onClick={saveConversationToPage}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded text-sm font-medium text-white transition flex items-center gap-2"
+              {/* Model Selector / Settings Toggle */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none"
                 >
-                  <FaCopy size={12} />
-                  Save Conversation
-                </button>
-              )} */}
-            </div>
-
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {currentConv.messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-zinc-500 text-center">
-                    Start a conversation by typing a message below
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {currentConv.messages.map((msg) => {
-                    const isTyping = typingMessageId === msg.id;
-                    const displayContent =
-                      msg.role === "assistant" && isTyping
-                        ? typingContent || " "
-                        : msg.content;
-
-                    return (
-                      <div key={msg.id} className="flex w-full justify-center">
-                        <div
-                          className={`w-full max-w-5xl px-6 py-3.5 rounded-2xl group relative text-sm leading-relaxed shadow-lg border ${
-                            msg.role === "user"
-                              ? "bg-blue-600/90 border-blue-500/60 text-white"
-                              : "bg-zinc-900/80 border-zinc-800 text-zinc-100"
-                          }`}
-                        >
-                          {msg.role === "assistant" ? (
-                            <div className="prose prose-invert max-w-none text-sm">
-                              <MarkdownRenderer content={displayContent} />
-                              {isTyping && (
-                                <span className="inline-block w-2 h-5 align-middle bg-blue-400 animate-pulse ml-1 rounded-sm" />
-                              )}
-                            </div>
-                          ) : (
-                            <p className="whitespace-pre-wrap text-left">
-                              {displayContent}
-                            </p>
-                          )}
-
-                          {/* Message Actions - only for AI messages */}
-                          {msg.role === "assistant" && (
-                            <div className="opacity-0 group-hover:opacity-100 transition absolute -top-8 right-3 flex gap-1 bg-zinc-800/90 border border-zinc-700 rounded p-1 shadow-md">
-                              <button
-                                onClick={() =>
-                                  copyToClipboard(msg.content, msg.id)
-                                }
-                                className="p-1.5 hover:bg-zinc-700 rounded transition"
-                                title="Copy"
-                              >
-                                {copiedMessageId === msg.id ? (
-                                  <FaCheck
-                                    size={12}
-                                    className="text-emerald-400"
-                                  />
-                                ) : (
-                                  <FaCopy size={12} />
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {isLoading && (
-                    <div className="flex gap-2">
-                      <div className="bg-zinc-800 px-3 py-2 rounded-lg">
-                        <div className="flex gap-1.5">
-                          <div className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-bounce"></div>
-                          <div className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                          <div className="w-1.5 h-1.5 bg-zinc-600 rounded-full animate-bounce [animation-delay:0.4s]"></div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </>
-              )}
-            </div>
-
-            {/* Input Area */}
-            <div className="border-t border-zinc-800 p-3 bg-zinc-900 space-y-2">
-              {!isOllamaRunning && (
-                <div className="p-2 bg-red-500/20 border border-red-500 rounded text-xs text-red-300">
-                  ⚠️ Ollama is not running. Please start Ollama to use AI Chat.
-                </div>
-              )}
-
-              {/* Uploaded Files Preview */}
-              {uploadedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {uploadedFiles.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center gap-1 px-2 py-1 bg-zinc-800 rounded text-xs border border-zinc-700"
-                    >
-                      <span className="text-blue-400">📎</span>
-                      <span className="truncate max-w-[150px]">
-                        {file.name}
-                      </span>
-                      <button
-                        onClick={() => removeUploadedFile(index)}
-                        className="ml-1 hover:text-red-400 transition"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
                   ))}
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*,.pdf"
-                  onChange={handleFileUpload}
-                  className="hidden"
+                </select>
+                <div
+                  className={`w-2 h-2 rounded-full ${isBackendHealthy ? "bg-emerald-500" : "bg-red-500"}`}
                 />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Upload image or PDF"
-                  className="px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 transition flex items-center justify-center gap-2"
-                >
-                  <FaFileUpload size={16} />
-                </button>
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  placeholder={
-                    isOllamaRunning
-                      ? "Message AI..."
-                      : "Ollama not connected..."
-                  }
-                  disabled={!isOllamaRunning || !selectedModel}
-                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={
-                    isLoading ||
-                    !inputValue.trim() ||
-                    !isOllamaRunning ||
-                    !selectedModel
-                  }
-                  className="px-3 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition flex items-center justify-center"
-                  title="Send message"
-                >
-                  <FaPaperPlane size={16} />
-                </button>
               </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar min-h-0 relative max-h-full">
+              <div className="max-w-4xl mx-auto space-y-6">
+                {currentConv.messages.map((msg) => {
+                  const isTyping = typingMessageId === msg.id;
+                  const displayContent =
+                    msg.role === "assistant" && isTyping
+                      ? typingContent || " "
+                      : msg.content;
+                  const isUser = msg.role === "user";
+
+                  return (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex gap-4 ${isUser ? "justify-end" : "justify-start"}`}
+                    >
+                      {!isUser && (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex-shrink-0 flex items-center justify-center shadow-lg mt-1">
+                          <FaRobot className="text-white text-xs" />
+                        </div>
+                      )}
+
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-5 py-4 shadow-xl border backdrop-blur-sm ${
+                          isUser
+                            ? "bg-blue-600 text-white border-blue-500/50 rounded-tr-none"
+                            : "bg-zinc-800/60 text-zinc-100 border-white/10 rounded-tl-none"
+                        }`}
+                      >
+                        {isUser ? (
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                            {displayContent}
+                          </p>
+                        ) : (
+                          <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-headings:font-bold prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10">
+                            <MarkdownRenderer content={displayContent} />
+                            {isTyping && (
+                              <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-1 rounded-full align-middle" />
+                            )}
+                          </div>
+                        )}
+
+                        {msg.role === "assistant" && !isTyping && (
+                          <div className="mt-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() =>
+                                copyToClipboard(msg.content, msg.id)
+                              }
+                              className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 bg-white/5 px-2 py-1 rounded-md transition"
+                            >
+                              {copiedMessageId === msg.id ? (
+                                <FaCheck className="text-emerald-400" />
+                              ) : (
+                                <FaCopy />
+                              )}
+                              Copy
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {isUser && (
+                        <div className="w-8 h-8 rounded-full bg-zinc-700 flex-shrink-0 flex items-center justify-center mt-1 border border-white/10">
+                          <FaUser className="text-zinc-400 text-xs" />
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
+
+                {isLoading && (
+                  <div className="flex gap-4">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex-shrink-0 flex items-center justify-center shadow-lg mt-1">
+                      <FaRobot className="text-white text-xs" />
+                    </div>
+                    <div className="bg-zinc-800/60 border border-white/10 rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                      <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                      <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce"></div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} className="h-4" />
+              </div>
+            </div>
+
+            {/* Input Floating Bar */}
+            <div className="p-6">
+              <div className="max-w-4xl mx-auto relative bg-zinc-800/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl ring-1 ring-white/5">
+                {/* File Uploads Preview */}
+                {uploadedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-3 pt-2 pb-1">
+                    {uploadedFiles.map((file, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-zinc-700/50 rounded-lg text-xs border border-white/10 group"
+                      >
+                        <span className="text-blue-400">📎</span>
+                        <span className="text-zinc-300 truncate max-w-[120px]">
+                          {file.name}
+                        </span>
+                        <button
+                          onClick={() => removeUploadedFile(index)}
+                          className="text-zinc-500 hover:text-red-400 transition ml-1"
+                        >
+                          <FaTrash size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2 items-end">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-3 text-zinc-400 hover:text-blue-400 hover:bg-white/5 rounded-xl transition-all"
+                    title="Upload files"
+                  >
+                    <FaFileUpload size={18} />
+                  </button>
+
+                  <textarea
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                      }
+                    }}
+                    placeholder={
+                      isBackendHealthy ? "Message AI..." : "Check connection..."
+                    }
+                    disabled={!isBackendHealthy || !selectedModel}
+                    rows={1}
+                    className="flex-1 bg-transparent border-none text-zinc-100 placeholder-zinc-500 focus:ring-0 resize-none py-3 max-h-32 text-sm leading-relaxed"
+                    style={{ minHeight: "44px" }}
+                  />
+
+                  <button
+                    onClick={sendMessage}
+                    disabled={
+                      isLoading || !inputValue.trim() || !isBackendHealthy
+                    }
+                    className={`p-3 rounded-xl transition-all duration-300 ${
+                      inputValue.trim()
+                        ? "bg-blue-600 text-white shadow-lg shadow-blue-500/25 rotate-0"
+                        : "bg-zinc-700 text-zinc-500 cursor-not-allowed rotate-0"
+                    }`}
+                  >
+                    <FaPaperPlane
+                      size={16}
+                      className={isLoading ? "animate-pulse" : ""}
+                    />
+                  </button>
+                </div>
+              </div>
+              <p className="text-center text-[10px] text-zinc-600 mt-3">
+                AI can make mistakes. Please verify important information.
+              </p>
             </div>
           </>
         )}

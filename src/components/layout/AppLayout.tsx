@@ -13,6 +13,7 @@ import { FaComments } from "@react-icons/all-files/fa/FaComments";
 import { TodoList } from "../../features/todo/TodoList";
 import { Calendar } from "../../features/calendar/Calendar";
 import { AIChat } from "../../features/ai/AIChat";
+import { motion, AnimatePresence } from "framer-motion";
 
 type RightPanelView = "editor" | "todo" | "calendar" | "aichat";
 
@@ -65,35 +66,35 @@ export const AppLayout = () => {
   }, [resize, stopResizing]);
 
   return (
-    <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-x-hidden overflow-y-auto">
+    <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-hidden">
       {/* Left Sidebar - Always Pages */}
-      <div
+      <aside
         style={{ width: sidebarWidth }}
-        className="flex-shrink-0 flex flex-col h-full overflow-hidden"
+        className="flex-shrink-0 flex flex-col h-full overflow-hidden no-print"
       >
-        <Sidebar />
-      </div>
+        <Sidebar view={rightPanelView} />
+      </aside>
 
       {/* Resizer Handle */}
       <div
         onMouseDown={startResizing}
         className={cn(
-          "w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50",
-          isDragging.current ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-800"
+          "w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50 no-print",
+          isDragging.current ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-800",
         )}
       />
 
       {/* Right Panel with Tabs */}
-      <div className="flex-1 h-full min-w-0 flex flex-col overflow-y-auto relative">
+      <div className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative">
         {/* Tab Buttons at Top */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900">
+        <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 no-print">
           <button
             onClick={() => setRightPanelView("editor")}
             className={cn(
               "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
               rightPanelView === "editor"
                 ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
             )}
           >
             <FaFile size={14} />
@@ -105,7 +106,7 @@ export const AppLayout = () => {
               "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
               rightPanelView === "todo"
                 ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
             )}
           >
             <FaListUl size={14} />
@@ -117,7 +118,7 @@ export const AppLayout = () => {
               "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
               rightPanelView === "calendar"
                 ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
             )}
           >
             <FaCalendar size={14} />
@@ -129,7 +130,7 @@ export const AppLayout = () => {
               "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
               rightPanelView === "aichat"
                 ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
             )}
           >
             <FaComments size={14} />
@@ -138,13 +139,24 @@ export const AppLayout = () => {
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto">
-          {rightPanelView === "editor" && (
-            <OmniEditor onSelectText={() => {}} />
-          )}
-          {rightPanelView === "todo" && <TodoList />}
-          {rightPanelView === "calendar" && <Calendar />}
-          {rightPanelView === "aichat" && <AIChat />}
+        <div className="flex-1 overflow-y-auto relative">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={rightPanelView}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              {rightPanelView === "editor" && (
+                <OmniEditor onSelectText={() => {}} />
+              )}
+              {rightPanelView === "todo" && <TodoList />}
+              {rightPanelView === "calendar" && <Calendar />}
+              {rightPanelView === "aichat" && <AIChat />}
+            </motion.div>
+          </AnimatePresence>
         </div>
 
         {/* Floating AI Button */}
@@ -155,7 +167,7 @@ export const AppLayout = () => {
                 window.getSelection()?.toString().trim() || "";
               openPanel(selectedText);
             }}
-            className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 z-50 group"
+            className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 z-50 group no-print"
             title="Open AI Assistant"
           >
             <FaRobot size={24} className="group-hover:animate-pulse" />
@@ -163,13 +175,13 @@ export const AppLayout = () => {
               <span
                 className={cn(
                   "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                  isOllamaRunning ? "bg-emerald-400" : "bg-amber-400"
+                  isOllamaRunning ? "bg-emerald-400" : "bg-amber-400",
                 )}
               ></span>
               <span
                 className={cn(
                   "relative inline-flex rounded-full h-3 w-3",
-                  isOllamaRunning ? "bg-emerald-500" : "bg-amber-500"
+                  isOllamaRunning ? "bg-emerald-500" : "bg-amber-500",
                 )}
               ></span>
             </span>
@@ -188,7 +200,7 @@ export const AppLayout = () => {
             activePageId || "current-page",
             action,
             selectionOverride,
-            pageContext
+            pageContext,
           )
         }
         onInsertResponse={(response) => {

@@ -294,8 +294,8 @@ export const builtinTemplates: Template[] = [
   },
   {
     id: "task-board",
-    name: "Task Board (Kanban)",
-    description: "Kanban board like Trello/Jira",
+    name: "Project Board",
+    description: "Manage tasks and projects with a Kanban board",
     icon: "🗂️",
     is_builtin: true,
     content: [
@@ -400,7 +400,7 @@ export const builtinTemplates: Template[] = [
         type: "paragraph",
         content: [
           { type: "text", text: "Date: ", styles: { bold: true } },
-          { type: "text", text: new Date().toLocaleDateString(), styles: {} },
+          { type: "text", text: "{{Date}}", styles: {} },
         ],
       },
       {
@@ -564,7 +564,7 @@ export const builtinTemplates: Template[] = [
         type: "paragraph",
         content: [
           { type: "text", text: "Date: ", styles: { bold: true } },
-          { type: "text", text: new Date().toLocaleDateString(), styles: {} },
+          { type: "text", text: "{{Date}}", styles: {} },
         ],
       },
       {

@@ -58,24 +58,64 @@ export const useAgentPanel = () => {
       pageId: string,
       actionId: string,
       selectionOverride?: string,
-      pageContext?: string
+      pageContext?: string,
     ) => {
       setState((prev) => ({ ...prev, isLoading: true, error: undefined }));
 
       try {
-        const response = await aiService.executeAction(
+        // Inject tool definitions into the context
+        const toolDefs = aiService.getToolDefinitions();
+        const fullContext = (pageContext || "") + "\n\n" + toolDefs;
+
+        const rawResponse = await aiService.executeAction(
           pageId,
           actionId,
           selectionOverride ?? state.selectedText,
-          pageContext
+          fullContext,
         );
 
-        setState((prev) => ({
-          ...prev,
-          isLoading: false,
-          response,
-          selectedAction: actionId,
-        }));
+        // Parse response for JSON commands
+        const { commands, textResponse } =
+          aiService.extractJsonFromResponse(rawResponse);
+
+        if (commands.length > 0) {
+          console.debug("🤖 AI Tool Commands:", commands);
+          // Set executing state (optimistic UI)
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            isExecutingTool: true, // "Building..." state
+            response: textResponse || "Building your blocks...",
+            selectedAction: actionId,
+          }));
+
+          // Dispatch events for OmniEditor to handle
+          commands.forEach((cmd) => {
+            window.dispatchEvent(
+              new CustomEvent("aiToolCommand", {
+                detail: cmd,
+              }),
+            );
+          });
+
+          // Reset tool state after a short delay (or wait for confirmation?)
+          // For now, simple timeout
+          setTimeout(() => {
+            setState((prev) => ({
+              ...prev,
+              isExecutingTool: false,
+              isOpen: false,
+            }));
+          }, 1500);
+        } else {
+          // Normal text response
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            response: textResponse,
+            selectedAction: actionId,
+          }));
+        }
       } catch (error) {
         setState((prev) => ({
           ...prev,
@@ -85,7 +125,7 @@ export const useAgentPanel = () => {
         }));
       }
     },
-    [state.selectedText]
+    [state.selectedText],
   );
 
   const setSelectedText = useCallback((text: string) => {
