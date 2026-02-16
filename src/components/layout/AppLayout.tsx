@@ -14,6 +14,11 @@ import { TodoList } from "../../features/todo/TodoList";
 import { Calendar } from "../../features/calendar/Calendar";
 import { AIChat } from "../../features/ai/AIChat";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  NotificationBell,
+  NotificationInbox,
+} from "../../features/notifications/NotificationInbox";
+import { notificationService } from "../../core/services/notificationService";
 
 type RightPanelView = "editor" | "todo" | "calendar" | "aichat";
 
@@ -32,6 +37,12 @@ export const AppLayout = () => {
     executeAction,
     setSelectedText,
   } = useAgentPanel();
+
+  // Start notification service on mount
+  useEffect(() => {
+    notificationService.start();
+    return () => notificationService.stop();
+  }, []);
 
   const startResizing = useCallback(() => {
     isDragging.current = true;
@@ -87,55 +98,63 @@ export const AppLayout = () => {
       {/* Right Panel with Tabs */}
       <div className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative">
         {/* Tab Buttons at Top */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 no-print">
-          <button
-            onClick={() => setRightPanelView("editor")}
-            className={cn(
-              "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
-              rightPanelView === "editor"
-                ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
-            )}
-          >
-            <FaFile size={14} />
-            Pages
-          </button>
-          <button
-            onClick={() => setRightPanelView("todo")}
-            className={cn(
-              "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
-              rightPanelView === "todo"
-                ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
-            )}
-          >
-            <FaListUl size={14} />
-            To-Do
-          </button>
-          <button
-            onClick={() => setRightPanelView("calendar")}
-            className={cn(
-              "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
-              rightPanelView === "calendar"
-                ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
-            )}
-          >
-            <FaCalendar size={14} />
-            Calendar
-          </button>
-          <button
-            onClick={() => setRightPanelView("aichat")}
-            className={cn(
-              "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
-              rightPanelView === "aichat"
-                ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
-            )}
-          >
-            <FaComments size={14} />
-            AI Chat
-          </button>
+        <div className="flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 no-print">
+          <div className="flex flex-1">
+            <button
+              onClick={() => setRightPanelView("editor")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "editor"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaFile size={14} />
+              Pages
+            </button>
+            <button
+              onClick={() => setRightPanelView("todo")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "todo"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaListUl size={14} />
+              To-Do
+            </button>
+            <button
+              onClick={() => setRightPanelView("calendar")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "calendar"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaCalendar size={14} />
+              Calendar
+            </button>
+            <button
+              onClick={() => setRightPanelView("aichat")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "aichat"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaComments size={14} />
+              AI Chat
+            </button>
+          </div>
+
+          {/* Notification Bell */}
+          <div className="relative px-3">
+            <NotificationBell />
+            <NotificationInbox />
+          </div>
         </div>
 
         {/* Content Area */}

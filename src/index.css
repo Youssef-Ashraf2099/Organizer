@@ -250,25 +250,37 @@
 
 /* 1. Slide-In for newly inserted blocks */
 @keyframes slideInUp {
-  from {
+  0% {
     opacity: 0;
-    transform: translateY(12px) scale(0.98);
+    transform: translateY(18px) scale(0.97);
+    filter: blur(2px);
   }
-  to {
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }
 
 .ai-block-insert {
-  animation: slideInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  animation: slideInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 /* 2. Edit Highlight — blue tint that fades out */
 @keyframes highlightFade {
   0% {
-    background-color: rgba(59, 130, 246, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.3);
+    background-color: rgba(59, 130, 246, 0.22);
+    box-shadow:
+      inset 0 0 0 1.5px rgba(59, 130, 246, 0.35),
+      0 0 12px rgba(59, 130, 246, 0.1);
+  }
+  50% {
+    background-color: rgba(59, 130, 246, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.15);
   }
   100% {
     background-color: transparent;
@@ -283,18 +295,24 @@
 
 /* 3. Replace cross-fade in */
 @keyframes replaceIn {
-  from {
+  0% {
     opacity: 0;
-    transform: translateX(8px);
+    transform: translateX(12px);
+    filter: blur(2px);
   }
-  to {
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
     opacity: 1;
     transform: translateX(0);
+    filter: blur(0);
   }
 }
 
 .ai-replace-in {
-  animation: replaceIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  animation: replaceIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 /* 4. Skeleton loading (while AI is thinking) */

@@ -395,7 +395,50 @@ export const OmniEditor = ({
 
         if (!editor) return;
 
+        // Guard against editor view not ready (page transitions, unmounting)
+        try {
+          // Accessing .document will throw if the editor view is destroyed
+          if (!editor.document || editor.document.length === 0) return;
+        } catch {
+          console.warn("⚠️ Editor not ready, skipping tool command");
+          return;
+        }
+
         console.debug("🔧 Executing Tool:", action, params);
+
+        // Validate that the command has usable content
+        if (!action) {
+          console.warn("⚠️ Tool command has no action, skipping");
+          return;
+        }
+
+        // Coerce content to string — AI can return objects/arrays instead of text
+        if (params?.content && typeof params.content !== "string") {
+          try {
+            params.content =
+              typeof params.content === "object"
+                ? JSON.stringify(params.content, null, 2)
+                : String(params.content);
+          } catch {
+            console.warn("⚠️ Could not coerce params.content to string");
+            return;
+          }
+        }
+
+        if (
+          [
+            "append_text",
+            "insert_text",
+            "replace_text",
+            "replace_all",
+          ].includes(action) &&
+          (!params?.content ||
+            (typeof params.content === "string" &&
+              params.content.trim().length === 0))
+        ) {
+          console.warn("⚠️ Tool command has empty content, skipping:", action);
+          return;
+        }
 
         // Helper to insert a custom block type
         const insertBlock = (type: string, props: any = {}) => {
@@ -503,20 +546,80 @@ export const OmniEditor = ({
               break;
             case "replace_text":
               if (params?.content) {
-                const blocks = markdownToBlocks(params.content);
-                if (blocks.length > 0) {
-                  insertedBlocks = blocks.length;
-                  try {
-                    const cursor = editor.getTextCursorPosition();
-                    const targetBlock =
-                      cursor?.block ||
-                      editor.document[editor.document.length - 1];
-                    editor.insertBlocks(blocks, targetBlock, "after");
-                  } catch {
-                    const lastBlock =
-                      editor.document[editor.document.length - 1];
-                    editor.insertBlocks(blocks, lastBlock, "after");
+                const newBlocks = markdownToBlocks(params.content);
+                if (newBlocks.length > 0) {
+                  // If find/search param is provided, try to locate and replace that block
+                  if (params?.find || params?.search) {
+                    const needle = (params.find || params.search).toLowerCase();
+                    const docBlocks = editor.document;
+                    let found = false;
+                    for (const block of docBlocks) {
+                      const blockText = ((block.content as any[]) || [])
+                        .map((c: any) => c.text || "")
+                        .join("")
+                        .toLowerCase();
+                      if (blockText.includes(needle)) {
+                        // Replace this block and insert additional blocks after it
+                        editor.updateBlock(block, newBlocks[0]);
+                        if (newBlocks.length > 1) {
+                          editor.insertBlocks(
+                            newBlocks.slice(1),
+                            block,
+                            "after",
+                          );
+                        }
+                        found = true;
+                        break;
+                      }
+                    }
+                    if (!found) {
+                      console.warn(
+                        "⚠️ replace_text: Could not find text:",
+                        needle.slice(0, 80),
+                        "— appending at end instead",
+                      );
+                      // Fallback: insert at end
+                      const lastBlock =
+                        editor.document[editor.document.length - 1];
+                      editor.insertBlocks(newBlocks, lastBlock, "after");
+                    }
+                  } else {
+                    // No find param — replace at cursor (or end)
+                    try {
+                      const cursor = editor.getTextCursorPosition();
+                      const targetBlock =
+                        cursor?.block ||
+                        editor.document[editor.document.length - 1];
+                      editor.insertBlocks(newBlocks, targetBlock, "after");
+                    } catch {
+                      const lastBlock =
+                        editor.document[editor.document.length - 1];
+                      editor.insertBlocks(newBlocks, lastBlock, "after");
+                    }
                   }
+                  insertedBlocks = newBlocks.length;
+                }
+              }
+              break;
+            case "replace_all":
+              if (params?.content) {
+                const newBlocks = markdownToBlocks(params.content);
+                if (newBlocks.length > 0) {
+                  // Remove all existing blocks
+                  const allBlocks = editor.document;
+                  const allIds = allBlocks.map((b) => b.id);
+                  editor.removeBlocks(allIds);
+                  // Insert new content — use the empty doc's first block as anchor
+                  const anchor = editor.document[0];
+                  if (anchor) {
+                    editor.updateBlock(anchor, newBlocks[0]);
+                    if (newBlocks.length > 1) {
+                      editor.insertBlocks(newBlocks.slice(1), anchor, "after");
+                    }
+                  } else {
+                    editor.insertBlocks(newBlocks, editor.document[0], "after");
+                  }
+                  insertedBlocks = newBlocks.length;
                 }
               }
               break;
@@ -531,12 +634,16 @@ export const OmniEditor = ({
 
           // Animate via the centralized animator
           if (insertedBlocks > 0) {
-            aiAnimator.handleCommand(action, insertedBlocks);
+            // Pre-hide newly inserted blocks immediately so they don't flash
+            // before the animator's slide-in kicks in
+            requestAnimationFrame(() => {
+              aiAnimator.handleCommand(action, insertedBlocks);
+            });
           }
         } catch (e) {
           console.error("Failed to execute tool:", e);
         }
-      }, 10);
+      }, 80);
     };
 
     window.addEventListener("aiToolCommand", handleToolCommand);

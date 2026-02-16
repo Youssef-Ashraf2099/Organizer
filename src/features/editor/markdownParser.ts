@@ -110,10 +110,33 @@ function htmlToMd(input: string): string {
  * Also handles HTML output from the AI by converting it to markdown first.
  */
 export function markdownToBlocks(markdown: string): PartialBlock[] {
+  // Ensure input is a string — the AI can sometimes return objects or arrays
+  let mdString: string;
+  if (typeof markdown !== "string") {
+    if (markdown === null || markdown === undefined) return [];
+    // If it's an object/array, stringify it as a code block
+    try {
+      mdString =
+        typeof markdown === "object"
+          ? JSON.stringify(markdown, null, 2)
+          : String(markdown);
+    } catch {
+      return [];
+    }
+  } else {
+    mdString = markdown;
+  }
+
+  if (!mdString.trim()) return [];
+
   // If the AI returned HTML, convert to markdown first
-  const cleaned = /<[a-z][\s\S]*>/i.test(markdown)
-    ? htmlToMd(markdown)
-    : markdown;
+  const cleaned = /<[a-z][\s\S]*>/i.test(mdString)
+    ? htmlToMd(mdString)
+    : mdString;
+
+  // Final safety check — cleaned must be a string
+  if (typeof cleaned !== "string" || !cleaned.trim()) return [];
+
   const lines = cleaned.split("\n");
   const blocks: PartialBlock[] = [];
   let i = 0;

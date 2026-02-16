@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
+import { notificationService } from "../../core/services/notificationService";
 
 // Helper function to calculate days left until a date
 const calculateDaysLeft = (dateStr: string): number => {
@@ -13,7 +14,7 @@ const calculateDaysLeft = (dateStr: string): number => {
 
 // Helper function to get days left status text and color
 const getDaysLeftDisplay = (
-  daysLeft: number
+  daysLeft: number,
 ): { text: string; color: string; bgColor: string } => {
   if (daysLeft < 0)
     return { text: "Overdue", color: "text-red-400", bgColor: "bg-red-500/20" };
@@ -159,6 +160,17 @@ export const TodoList = () => {
       createdAt: new Date().toLocaleDateString(),
     };
 
+    // Schedule notification if reminder is set
+    if (todo.reminder) {
+      notificationService.scheduleReminder({
+        type: "task_reminder",
+        title: `⏰ Task Reminder: ${todo.title}`,
+        body: todo.description || `Don't forget: ${todo.title}`,
+        scheduledAt: new Date(todo.reminder).toISOString(),
+        linkedId: todo.id,
+      });
+    }
+
     setTodos([...todos, todo]);
     setShowAddModal(false);
     setNewTask({
@@ -173,6 +185,7 @@ export const TodoList = () => {
 
   const deleteTodo = (id: string) => {
     if (confirm("Delete this task?")) {
+      notificationService.removeRemindersForItem(id);
       setTodos(todos.filter((t) => t.id !== id));
       if (selectedTodo?.id === id) setSelectedTodo(null);
     }
@@ -182,6 +195,25 @@ export const TodoList = () => {
     setTodos(todos.map((t) => (t.id === id ? { ...t, ...updates } : t)));
     if (selectedTodo?.id === id) {
       setSelectedTodo({ ...selectedTodo, ...updates });
+    }
+
+    // Re-schedule notification if reminder changed
+    if (updates.reminder !== undefined) {
+      notificationService.removeRemindersForItem(id);
+      if (updates.reminder) {
+        const task = todos.find((t) => t.id === id);
+        const title = updates.title || task?.title || "Task";
+        notificationService.scheduleReminder({
+          type: "task_reminder",
+          title: `⏰ Task Reminder: ${title}`,
+          body:
+            updates.description ||
+            task?.description ||
+            `Don't forget: ${title}`,
+          scheduledAt: new Date(updates.reminder).toISOString(),
+          linkedId: id,
+        });
+      }
     }
   };
 
@@ -233,7 +265,7 @@ export const TodoList = () => {
                     const totalSubtasks = todo.subtasks?.length || 0;
                     const linkedEvent = todo.linkedEventId
                       ? calendarEvents.find(
-                          (e: any) => e.id === todo.linkedEventId
+                          (e: any) => e.id === todo.linkedEventId,
                         )
                       : null;
                     const daysLeft = linkedEvent
@@ -496,7 +528,7 @@ export const TodoList = () => {
                   <div className="mt-2 text-sm font-semibold">
                     {(() => {
                       const linkedEvent = calendarEvents.find(
-                        (e: any) => e.id === newTask.linkedEventId
+                        (e: any) => e.id === newTask.linkedEventId,
                       );
                       if (!linkedEvent) return null;
                       const daysLeft = calculateDaysLeft(linkedEvent.date);
@@ -921,7 +953,7 @@ export const TodoList = () => {
                   <div className="mt-2 text-sm font-semibold">
                     {(() => {
                       const linkedEvent = calendarEvents.find(
-                        (e: any) => e.id === selectedTodo.linkedEventId
+                        (e: any) => e.id === selectedTodo.linkedEventId,
                       );
                       if (!linkedEvent) return null;
                       const daysLeft = calculateDaysLeft(linkedEvent.date);

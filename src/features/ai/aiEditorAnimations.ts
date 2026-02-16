@@ -58,18 +58,26 @@ export class AIEditorAnimator {
     const blocks = this.getLastBlockElements(count);
     if (blocks.length === 0) return;
 
-    // Staggered slide-in
+    // Immediately hide all target blocks so they don't "pop" before animating
+    blocks.forEach((el) => {
+      el.style.opacity = "0";
+      el.style.transform = "translateY(18px) scale(0.97)";
+    });
+
+    // Staggered slide-in — delay each block for a cascading effect
     blocks.forEach((el, i) => {
-      this.applyClass(
-        el,
-        "ai-block-insert",
-        this.options.insertDuration + i * 60,
-      );
-      this.applyClass(
-        el,
-        "ai-edit-highlight",
-        this.options.highlightDuration + i * 60,
-      );
+      const staggerDelay = i * 80;
+      setTimeout(() => {
+        // Remove the inline hide styles so the CSS animation takes over
+        el.style.opacity = "";
+        el.style.transform = "";
+        this.applyClass(el, "ai-block-insert", this.options.insertDuration);
+        this.applyClass(
+          el,
+          "ai-edit-highlight",
+          this.options.highlightDuration,
+        );
+      }, staggerDelay);
     });
 
     // Scroll the first inserted block into view
@@ -88,10 +96,24 @@ export class AIEditorAnimator {
     const blocks = this.getLastBlockElements(count);
     if (blocks.length === 0) return;
 
-    // Quick out → in cross-fade
+    // Hide blocks first, then cross-fade in
     blocks.forEach((el) => {
-      this.applyClass(el, "ai-replace-in", this.options.replaceDuration);
-      this.applyClass(el, "ai-edit-highlight", this.options.highlightDuration);
+      el.style.opacity = "0";
+      el.style.transform = "translateX(12px)";
+    });
+
+    // Slight delay then animate in
+    requestAnimationFrame(() => {
+      blocks.forEach((el) => {
+        el.style.opacity = "";
+        el.style.transform = "";
+        this.applyClass(el, "ai-replace-in", this.options.replaceDuration);
+        this.applyClass(
+          el,
+          "ai-edit-highlight",
+          this.options.highlightDuration,
+        );
+      });
     });
 
     this.scrollIntoView(blocks[0]);
@@ -127,8 +149,8 @@ export class AIEditorAnimator {
   /*  Internals                                                          */
   /* ------------------------------------------------------------------ */
 
-  /** Wait a tick for the DOM to flush after editor mutation */
-  private waitForDom(ms = 200): Promise<void> {
+  /** Wait for the DOM to flush after editor mutation */
+  private waitForDom(ms = 150): Promise<void> {
     return new Promise((r) => setTimeout(r, ms));
   }
 

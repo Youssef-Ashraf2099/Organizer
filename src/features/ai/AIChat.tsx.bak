@@ -152,24 +152,21 @@ export const AIChat = () => {
         .getState()
         .conversations.find((c) => c.id === currentConvId);
       const currentMessages = conv ? conv.messages : [];
+      const historyForAI = currentMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
       // Build final messages array: system → history → user
-      // Trim & sanitize history to prevent confusion on follow-up messages
-      const rawHistory = currentMessages.map((m) => ({
-        role: m.role,
-        content: aiService.sanitizeHistoryMessage(m.content, m.role),
-      }));
-      const historyForAI = aiService.trimHistory(rawHistory);
-
       const messages: { role: string; content: string }[] = [];
 
-      // SYSTEM message — Ask mode uses simpler prompt with no tools
+      // SYSTEM message with tool definitions (never in user content)
       messages.push({
         role: "system",
         content: aiService.getToolDefinitions(),
       });
 
-      // Conversation history (trimmed)
+      // Conversation history
       messages.push(...historyForAI);
 
       // Current user message with context (but NO tool defs)
@@ -183,24 +180,17 @@ export const AIChat = () => {
 
       const response = await aiService.chat(messages, selectedModel, backend);
 
-      // --- Hallucination & garbled response guard ---
-      const hallucinated = aiService.isHallucination(response);
-      const garbled = aiService.isGarbled(response);
-      if (hallucinated || garbled) {
-        console.warn("⚠️ Response rejected:", {
-          hallucinated,
-          garbled,
-          length: response.length,
-          preview: response.slice(0, 200),
-        });
+      // --- Hallucination guard ---
+      if (aiService.isHallucination(response)) {
         addMessage(currentConvId, {
           role: "assistant",
           content:
-            "I had trouble generating that. Let me try again — please rephrase or simplify your request.",
+            "I had trouble generating that. Please try rephrasing your request.",
         });
         return;
       }
 
+      console.debug("🤖 AI Raw Response:", response);
       const parsed = aiService.extractJsonFromResponse(response);
       const commands = parsed?.commands ?? [];
       const textResponse = parsed?.textResponse ?? "";
@@ -214,22 +204,25 @@ export const AIChat = () => {
         }
       }
 
+      // Show the right message in the chat
       const didEditPage = commands.length > 0;
 
-      let assistantMsg = "";
       if (didEditPage && textResponse) {
-        assistantMsg = textResponse + "\n\n✅ Changes applied to the page.";
+        addMessage(currentConvId, {
+          role: "assistant",
+          content: textResponse + "\n\n✅ Changes applied to the page.",
+        });
       } else if (didEditPage) {
-        assistantMsg = "✅ I've updated the page for you.";
+        addMessage(currentConvId, {
+          role: "assistant",
+          content: "✅ I've updated the page for you.",
+        });
       } else {
-        assistantMsg =
-          textResponse || "I'm here to help! Could you provide more details?";
+        addMessage(currentConvId, {
+          role: "assistant",
+          content: textResponse || response || "No response content.",
+        });
       }
-
-      addMessage(currentConvId, {
-        role: "assistant",
-        content: assistantMsg,
-      });
 
       // Typing effect for the new message
       setTimeout(() => {

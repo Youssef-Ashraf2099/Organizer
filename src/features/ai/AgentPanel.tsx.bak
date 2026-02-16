@@ -56,8 +56,6 @@ export const AgentPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<PanelMode>("agent");
   const [showHistory, setShowHistory] = useState(false);
-  const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
-  const [typingContent, setTypingContent] = useState("");
 
   const quickPrompts =
     mode === "agent"
@@ -98,36 +96,7 @@ export const AgentPanel = ({
     if (state.isOpen && !showHistory) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [activeConv?.messages, state.isOpen, showHistory, typingContent]);
-
-  // Reset typing state on conversation switch
-  useEffect(() => {
-    setTypingMessageId(null);
-    setTypingContent("");
-  }, [activeConvId]);
-
-  // Typing effect for assistant messages
-  useEffect(() => {
-    if (!typingMessageId) return;
-    const conv = conversations.find((c) => c.id === activeConvId);
-    const message = conv?.messages.find((m) => m.id === typingMessageId);
-    if (!message) return;
-
-    const fullText = message.content;
-    let index = 0;
-    const step = Math.max(1, Math.ceil(fullText.length / 300));
-
-    const interval = setInterval(() => {
-      index += step;
-      setTypingContent(fullText.slice(0, index));
-      if (index >= fullText.length) {
-        clearInterval(interval);
-        setTypingMessageId(null);
-        setTypingContent("");
-      }
-    }, 10);
-    return () => clearInterval(interval);
-  }, [typingMessageId, conversations, activeConvId]);
+  }, [activeConv?.messages, state.isOpen, showHistory]);
 
   // Handle Close on Escape
   useEffect(() => {
@@ -200,14 +169,9 @@ export const AgentPanel = ({
       }
     }
 
-    // Limit page context size based on whether there's existing history.
-    // Smaller models struggle when history + page content exceed the context window.
-    const hasHistory = (activeConv?.messages.length ?? 0) > 0;
-    const pageContextLimit = hasHistory ? 4000 : 12000;
-
     let contextBlock = "";
     if (pageContent)
-      contextBlock += `\n\nCURRENT PAGE CONTENT:\n${pageContent.slice(0, pageContextLimit)}`;
+      contextBlock += `\n\nCURRENT PAGE CONTENT:\n${pageContent.slice(0, 15000)}`;
     if (state.selectedText)
       contextBlock += `\n\nSELECTED TEXT:\n${state.selectedText}`;
     if (pdfText) contextBlock += `\n\nPDF CONTEXT:\n${pdfText.slice(0, 5000)}`;
@@ -229,31 +193,28 @@ export const AgentPanel = ({
       const aiState = await aiService.getState();
 
       // Build message array — tool defs go as SYSTEM, never in user content
-      // Trim & sanitize history to prevent hallucination on 2nd+ request
-      const rawHistory = activeConv
-        ? activeConv.messages.map((m) => ({
-            role: m.role,
-            content: aiService.sanitizeHistoryMessage(m.content, m.role),
-          }))
+      const historyMsgs = activeConv
+        ? activeConv.messages.map((m) => ({ role: m.role, content: m.content }))
         : [];
-      const historyMsgs = aiService.trimHistory(rawHistory);
 
       const messages: { role: string; content: string }[] = [];
 
       if (mode === "agent") {
+        // System message with tool definitions
         messages.push({
           role: "system",
           content: aiService.getToolDefinitions(),
         });
       } else {
+        // Ask mode — simple helpful assistant, no tools
         messages.push({
           role: "system",
           content:
-            "You are a helpful AI assistant called Omni AI. Answer the user's questions clearly and concisely. Use markdown formatting. Do NOT output any JSON tool blocks.",
+            "You are a helpful AI assistant. Answer the user's questions clearly and concisely. Do NOT output any JSON tool blocks.",
         });
       }
 
-      // Conversation history (trimmed)
+      // Conversation history
       messages.push(...historyMsgs);
 
       // Current user message + context
@@ -268,20 +229,12 @@ export const AgentPanel = ({
         aiState.backend,
       );
 
-      // --- Hallucination & garbled response guard ---
-      const hallucinated = aiService.isHallucination(response);
-      const garbled = aiService.isGarbled(response);
-      if (hallucinated || garbled) {
-        console.warn("\u26a0\ufe0f Response rejected:", {
-          hallucinated,
-          garbled,
-          length: response.length,
-          preview: response.slice(0, 200),
-        });
+      // --- Hallucination guard ---
+      if (aiService.isHallucination(response)) {
         addMessage(activeConvId, {
           role: "assistant",
           content:
-            "I had trouble generating that. Let me try again — please rephrase your request.",
+            "I had trouble generating that. Please try rephrasing your request.",
         });
         return;
       }
@@ -317,8 +270,6 @@ export const AgentPanel = ({
           text.trim(),
         );
 
-      let assistantMsg = "";
-
       if (commands.length === 0 && textResponse && !isQuestion) {
         // The AI forgot to use a tool — send the text to the page anyway
         window.dispatchEvent(
@@ -329,37 +280,27 @@ export const AgentPanel = ({
             },
           }),
         );
-        assistantMsg = "✅ Content added to the page.";
+        addMessage(activeConvId, {
+          role: "assistant",
+          content: "✅ Content added to the page.",
+        });
+      } else if (commands.length > 0 && textResponse) {
+        addMessage(activeConvId, {
+          role: "assistant",
+          content: textResponse + "\n\n✅ Changes applied to the page.",
+        });
       } else if (commands.length > 0) {
-        // Show a clean confirmation + short preview of what was written.
-        // Do NOT dump the textResponse into chat — that causes "split
-        // content" where the same info appears in both the page and the chat.
-        const preview = aiService.summarizeToolContent(commands);
-        assistantMsg = "✅ Changes applied to the page.";
-        if (preview) {
-          assistantMsg += "\n\n" + preview;
-        }
+        addMessage(activeConvId, {
+          role: "assistant",
+          content: "✅ I've updated the page for you.",
+        });
       } else {
-        // No tool commands, no page edit — just a conversational answer
-        assistantMsg =
-          textResponse || "I'm here to help! Could you provide more details?";
+        // Pure chat response (user asked a question)
+        addMessage(activeConvId, {
+          role: "assistant",
+          content: textResponse || response || "No response",
+        });
       }
-
-      addMessage(activeConvId, {
-        role: "assistant",
-        content: assistantMsg,
-      });
-
-      // Trigger typing effect for the new message
-      setTimeout(() => {
-        const updatedConv = useChatStore
-          .getState()
-          .conversations.find((c) => c.id === activeConvId);
-        const lastMsg = updatedConv?.messages[updatedConv.messages.length - 1];
-        if (lastMsg && lastMsg.role === "assistant") {
-          setTypingMessageId(lastMsg.id);
-        }
-      }, 50);
     } catch (e) {
       console.error(e);
       addMessage(activeConvId, {
@@ -565,76 +506,56 @@ export const AgentPanel = ({
                 </div>
               )}
 
-              {activeConv?.messages.map((msg) => {
-                const isTyping = typingMessageId === msg.id;
-                const displayContent =
-                  msg.role === "assistant" && isTyping
-                    ? typingContent || " "
-                    : msg.content;
-
-                return (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
-                    {msg.role === "assistant" && (
-                      <div className="w-6 h-6 rounded bg-indigo-600/50 flex items-center justify-center flex-shrink-0 mt-1">
-                        <FaRobot size={12} />
-                      </div>
-                    )}
-                    <div
-                      className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                        msg.role === "user"
-                          ? "bg-blue-600 text-white rounded-tr-sm"
-                          : "bg-zinc-800 text-zinc-200 rounded-tl-sm border border-white/5"
-                      }`}
-                    >
-                      {msg.role === "assistant" ? (
-                        <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2">
-                          <ReactMarkdown>{displayContent}</ReactMarkdown>
-                          {isTyping && (
-                            <span className="inline-block w-1.5 h-3 bg-blue-400 animate-pulse ml-0.5 rounded-full align-middle" />
-                          )}
-                        </div>
-                      ) : (
-                        <div className="whitespace-pre-wrap">{msg.content}</div>
-                      )}
-                      {msg.role === "assistant" && !isTyping && (
-                        <button
-                          onClick={() =>
-                            navigator.clipboard.writeText(msg.content)
-                          }
-                          className="mt-2 flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300"
-                        >
-                          <FaCopy size={10} /> Copy
-                        </button>
-                      )}
+              {activeConv?.messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  {msg.role === "assistant" && (
+                    <div className="w-6 h-6 rounded bg-indigo-600/50 flex items-center justify-center flex-shrink-0 mt-1">
+                      <FaRobot size={12} />
                     </div>
-                  </motion.div>
-                );
-              })}
+                  )}
+                  <div
+                    className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-blue-600 text-white rounded-tr-sm"
+                        : "bg-zinc-800 text-zinc-200 rounded-tl-sm border border-white/5"
+                    }`}
+                  >
+                    {msg.role === "assistant" ? (
+                      <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                    )}
+                    {msg.role === "assistant" && (
+                      <button
+                        onClick={() =>
+                          navigator.clipboard.writeText(msg.content)
+                        }
+                        className="mt-2 flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300"
+                      >
+                        <FaCopy size={10} /> Copy
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
 
               {isLoading && (
                 <div className="flex gap-3 justify-start">
                   <div className="w-6 h-6 rounded bg-indigo-600/50 flex items-center justify-center flex-shrink-0 mt-1">
-                    <FaRobot size={12} className="animate-pulse" />
+                    <FaRobot size={12} />
                   </div>
-                  <div className="bg-zinc-800 px-4 py-3 rounded-2xl rounded-tl-sm border border-white/5">
-                    <div className="flex items-center gap-2">
-                      <div className="flex gap-1 items-center">
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" />
-                      </div>
-                      <span className="text-xs text-zinc-400 animate-pulse">
-                        {mode === "agent"
-                          ? "Working on your page..."
-                          : "Thinking..."}
-                      </span>
-                    </div>
+                  <div className="bg-zinc-800 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1 items-center">
+                    <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
                   </div>
                 </div>
               )}

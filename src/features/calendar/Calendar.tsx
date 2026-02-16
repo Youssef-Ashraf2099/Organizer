@@ -4,6 +4,7 @@ import { FaChevronRight } from "@react-icons/all-files/fa/FaChevronRight";
 import { FaPlus } from "@react-icons/all-files/fa/FaPlus";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import { FaTimes } from "@react-icons/all-files/fa/FaTimes";
+import { notificationService } from "../../core/services/notificationService";
 
 export type CalendarEvent = {
   id: string;
@@ -13,6 +14,7 @@ export type CalendarEvent = {
   tag: string;
   description?: string;
   linkedTaskId?: string;
+  reminder?: string; // ISO datetime for reminder
 };
 
 const EVENT_TAGS = [
@@ -26,10 +28,13 @@ const EVENT_TAGS = [
   { name: "other", color: "#64748b", label: "📌 Other" },
 ];
 
-const TAG_COLOR_MAP = EVENT_TAGS.reduce((acc, tag) => {
-  acc[tag.name] = tag.color;
-  return acc;
-}, {} as Record<string, string>);
+const TAG_COLOR_MAP = EVENT_TAGS.reduce(
+  (acc, tag) => {
+    acc[tag.name] = tag.color;
+    return acc;
+  },
+  {} as Record<string, string>,
+);
 
 export const Calendar = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -81,13 +86,13 @@ export const Calendar = () => {
 
   const prevMonth = () => {
     setCurrentDate(
-      new Date(currentDate.getFullYear(), currentDate.getMonth() - 1)
+      new Date(currentDate.getFullYear(), currentDate.getMonth() - 1),
     );
   };
 
   const nextMonth = () => {
     setCurrentDate(
-      new Date(currentDate.getFullYear(), currentDate.getMonth() + 1)
+      new Date(currentDate.getFullYear(), currentDate.getMonth() + 1),
     );
   };
 
@@ -97,7 +102,7 @@ export const Calendar = () => {
 
   const getDateString = (day: number) => {
     return `${year}-${String(month + 1).padStart(2, "0")}-${String(
-      day
+      day,
     ).padStart(2, "0")}`;
   };
 
@@ -122,17 +127,48 @@ export const Calendar = () => {
   };
 
   const addEvent = (event: Omit<CalendarEvent, "id">) => {
-    setEvents([...events, { ...event, id: crypto.randomUUID() }]);
+    const newId = crypto.randomUUID();
+    const newEvent = { ...event, id: newId };
+    setEvents([...events, newEvent]);
+
+    // Schedule notification if reminder is set
+    if (event.reminder) {
+      notificationService.scheduleReminder({
+        type: "event_reminder",
+        title: `📅 Event Reminder: ${event.title}`,
+        body: event.description || `Upcoming: ${event.title}`,
+        scheduledAt: new Date(event.reminder).toISOString(),
+        linkedId: newId,
+      });
+    }
   };
 
   const deleteEvent = (id: string) => {
     if (confirm("Delete this event?")) {
+      notificationService.removeRemindersForItem(id);
       setEvents(events.filter((e) => e.id !== id));
     }
   };
 
   const updateEvent = (id: string, updates: Partial<CalendarEvent>) => {
     setEvents(events.map((e) => (e.id === id ? { ...e, ...updates } : e)));
+
+    // Re-schedule notification if reminder changed
+    if (updates.reminder !== undefined) {
+      notificationService.removeRemindersForItem(id);
+      if (updates.reminder) {
+        const event = events.find((e) => e.id === id);
+        const title = updates.title || event?.title || "Event";
+        notificationService.scheduleReminder({
+          type: "event_reminder",
+          title: `📅 Event Reminder: ${title}`,
+          body:
+            updates.description || event?.description || `Upcoming: ${title}`,
+          scheduledAt: new Date(updates.reminder).toISOString(),
+          linkedId: id,
+        });
+      }
+    }
   };
 
   const days = [];
@@ -154,10 +190,10 @@ export const Calendar = () => {
           today
             ? "border-yellow-500 bg-yellow-500/10"
             : isPast
-            ? "border-zinc-800/50 bg-zinc-900/30 opacity-60"
-            : dateStr === selectedDate
-            ? "border-blue-500 bg-blue-500/10"
-            : "border-zinc-800 hover:border-zinc-700"
+              ? "border-zinc-800/50 bg-zinc-900/30 opacity-60"
+              : dateStr === selectedDate
+                ? "border-blue-500 bg-blue-500/10"
+                : "border-zinc-800 hover:border-zinc-700"
         }`}
       >
         <div className="flex items-center justify-between mb-0.5">
@@ -166,8 +202,8 @@ export const Calendar = () => {
               today
                 ? "text-yellow-500"
                 : isPast
-                ? "text-zinc-600"
-                : "text-zinc-300"
+                  ? "text-zinc-600"
+                  : "text-zinc-300"
             }`}
           >
             {day}
@@ -204,7 +240,7 @@ export const Calendar = () => {
             </div>
           )}
         </div>
-      </div>
+      </div>,
     );
   }
 
@@ -275,7 +311,7 @@ export const Calendar = () => {
                     month: "long",
                     day: "numeric",
                     year: "numeric",
-                  }
+                  },
                 )}
               </h3>
               <button
@@ -487,6 +523,33 @@ export const Calendar = () => {
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
                   placeholder="Event details..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1">
+                  🔔 Reminder (optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={editingEvent.reminder || ""}
+                  onChange={(e) =>
+                    setEditingEvent({
+                      ...editingEvent,
+                      reminder: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                />
+                {editingEvent.reminder && (
+                  <button
+                    onClick={() =>
+                      setEditingEvent({ ...editingEvent, reminder: undefined })
+                    }
+                    className="mt-1 text-xs text-red-400 hover:text-red-300 transition"
+                  >
+                    ✕ Clear reminder
+                  </button>
+                )}
               </div>
             </div>
 
