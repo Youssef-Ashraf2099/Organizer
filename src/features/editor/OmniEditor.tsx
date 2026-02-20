@@ -23,7 +23,11 @@ import { MermaidBlock } from "./MermaidBlock";
 import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
 import { AudioBlock } from "./AudioBlock";
-import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
+import {
+  markdownToBlocks,
+  htmlToMarkdown,
+  organizePageStructure,
+} from "./markdownParser";
 import { aiAnimator } from "../ai/aiEditorAnimations";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
@@ -39,6 +43,7 @@ import { FaChevronDown } from "@react-icons/all-files/fa/FaChevronDown";
 import { FaPrint } from "@react-icons/all-files/fa/FaPrint";
 import { FaFileCode } from "@react-icons/all-files/fa/FaFileCode";
 import { FaHtml5 } from "@react-icons/all-files/fa/FaHtml5";
+import { FaMagic } from "@react-icons/all-files/fa/FaMagic";
 import {
   uploadFileFromPicker,
   uploadFileFromBytes,
@@ -763,32 +768,53 @@ export const OmniEditor = ({
       }
     }
 
-    // If no image handled, check for HTML content (e.g. from Slides/GPT)
+    // If no image handled, check for HTML content (e.g. from Slides/GPT/Gemini)
     if (!handledImage) {
       const html = event.clipboardData.getData("text/html");
+      const plainText = event.clipboardData.getData("text/plain");
+
       if (html) {
-        event.preventDefault(); // Stop default plain text paste
+        event.preventDefault(); // Stop default paste
         const markdown = htmlToMarkdown(html);
-        console.debug("Parsed Paste Markdown:", markdown);
+        console.debug("HTML detected - converted to markdown:", {
+          original: html.substring(0, 200),
+          markdown: markdown.substring(0, 200),
+        });
 
         const blocks = markdownToBlocks(markdown);
         if (blocks.length > 0) {
+          console.debug(`Created ${blocks.length} blocks from HTML`);
           editor.insertBlocks(
             blocks,
             editor.getTextCursorPosition().block,
             "after",
           );
+          return; // Successfully handled
+        }
+      }
+
+      // Try plain text as markdown (common for AI responses)
+      if (plainText) {
+        event.preventDefault();
+        const textBlocks = markdownToBlocks(plainText);
+        console.debug("Plain text detected - parsing as markdown:", {
+          lines: plainText.split("\n").length,
+          blocks: textBlocks.length,
+        });
+
+        if (textBlocks.length > 0) {
+          editor.insertBlocks(
+            textBlocks,
+            editor.getTextCursorPosition().block,
+            "after",
+          );
         } else {
-          // Fallback to text if conversion yields nothing useful?
-          // Or maybe just let it paste as text if markdown is empty?
-          // If markdown is empty but HTML existed, maybe it was just tags?
-          const text = event.clipboardData.getData("text/plain");
-          if (text)
-            editor.insertBlocks(
-              [{ type: "paragraph", content: text }],
-              editor.getTextCursorPosition().block,
-              "after",
-            );
+          // Last resort: insert as plain paragraph
+          editor.insertBlocks(
+            [{ type: "paragraph", content: plainText }],
+            editor.getTextCursorPosition().block,
+            "after",
+          );
         }
       }
     }
@@ -1149,6 +1175,43 @@ export const OmniEditor = ({
             <FaSave size={14} />
             Save as Template
           </button>
+
+          {/* Organize Page Button */}
+          <button
+            onClick={() => {
+              if (!editor || !editor.document) {
+                console.error("Editor not ready");
+                return;
+              }
+              try {
+                console.log("Starting page organization...");
+                console.log("Current blocks:", editor.document);
+
+                const blocks = [...editor.document]; // Make a copy
+                const organized = organizePageStructure(blocks);
+
+                console.log("Organized blocks:", organized);
+
+                // Update the editor with reorganized content
+                if (organized.length > 0) {
+                  // Replace all blocks with organized ones
+                  editor.replaceBlocks(editor.document, organized);
+                  console.debug("✅ Page reorganized successfully!");
+                } else {
+                  console.warn("No reorganized blocks to apply");
+                }
+              } catch (error) {
+                console.error("❌ Error organizing page:", error);
+                alert("Error organizing page. Check console for details.");
+              }
+            }}
+            className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition flex items-center gap-1"
+            title="Organize page structure - auto-detect headings and lists, remove broken items"
+          >
+            <FaMagic size={14} />
+            Organize
+          </button>
+
           <div className="relative group z-50">
             <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-black/20">
               Export
@@ -1235,6 +1298,7 @@ export const OmniEditor = ({
           onChange={handleChange}
           theme={darkTheme}
           slashMenu={false}
+          spellCheck={true}
         >
           <SuggestionMenuController
             triggerCharacter={"/"}
