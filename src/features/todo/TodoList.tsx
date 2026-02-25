@@ -1,4 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  closestCorners,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import { notificationService } from "../../core/services/notificationService";
 
@@ -85,6 +103,280 @@ const COLUMNS = [
   { id: "done" as const, title: "Done", color: "#10b981" },
 ];
 
+const emptyTodoCounts: Record<TodoItem["column"], number> = {
+  backlog: 0,
+  todo: 0,
+  inprogress: 0,
+  done: 0,
+};
+
+const buildTodoCounts = (items: TodoItem[]) =>
+  items.reduce(
+    (acc, todo) => {
+      acc[todo.column] = (acc[todo.column] || 0) + 1;
+      return acc;
+    },
+    { ...emptyTodoCounts },
+  );
+
+const buildColumnMap = (items: TodoItem[]) => {
+  const map = COLUMNS.reduce(
+    (acc, column) => {
+      acc[column.id] = [];
+      return acc;
+    },
+    {} as Record<TodoItem["column"], TodoItem[]>,
+  );
+
+  items.forEach((todo) => {
+    map[todo.column].push(todo);
+  });
+
+  return map;
+};
+
+const flattenColumnMap = (map: Record<TodoItem["column"], TodoItem[]>) =>
+  COLUMNS.flatMap((column) => map[column.id] || []);
+
+const getTodoDaysLeft = (todo: TodoItem, calendarEvents: any[]) => {
+  if (!todo.linkedEventId) return null;
+  const linkedEvent = calendarEvents.find(
+    (event: any) => event.id === todo.linkedEventId,
+  );
+  if (!linkedEvent) return null;
+  return calculateDaysLeft(linkedEvent.date);
+};
+
+type DraggableTodoCardProps = {
+  todo: TodoItem;
+  columnColor: string;
+  calendarEvents: any[];
+  onSelect: (todo: TodoItem) => void;
+  onDelete: (id: string) => void;
+};
+
+const DraggableTodoCard = ({
+  todo,
+  columnColor,
+  calendarEvents,
+  onSelect,
+  onDelete,
+}: DraggableTodoCardProps) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: todo.id, data: { columnId: todo.column } });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const daysLeft = getTodoDaysLeft(todo, calendarEvents);
+  const completedSubtasks =
+    todo.subtasks?.filter((s) => s.completed).length || 0;
+  const totalSubtasks = todo.subtasks?.length || 0;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      onClick={() => onSelect(todo)}
+      className={`bg-zinc-900 rounded-lg p-3 border border-zinc-800 cursor-pointer transition ${
+        isDragging
+          ? "opacity-60 border-indigo-500 shadow-lg"
+          : "hover:border-zinc-700"
+      }`}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h4 className="font-semibold text-sm text-zinc-100 flex-1">
+          {todo.title}
+        </h4>
+        {daysLeft !== null && (
+          <span
+            className={`text-xs font-bold px-2 py-1 rounded-md ${
+              getDaysLeftDisplay(daysLeft).color
+            } ${getDaysLeftDisplay(daysLeft).bgColor}`}
+          >
+            {getDaysLeftDisplay(daysLeft).text}
+          </span>
+        )}
+        <button
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete(todo.id);
+          }}
+          className="text-zinc-500 hover:text-red-400 transition"
+        >
+          <FaTrash size={12} />
+        </button>
+      </div>
+
+      {totalSubtasks > 0 && (
+        <div className="text-xs text-zinc-400 mb-1">
+          {completedSubtasks}/{totalSubtasks} subtasks
+        </div>
+      )}
+
+      {totalSubtasks > 0 && (
+        <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-2">
+          <div
+            className="h-1.5 rounded-full transition-all"
+            style={{
+              width: `${(completedSubtasks / totalSubtasks) * 100}%`,
+              backgroundColor: columnColor,
+            }}
+          />
+        </div>
+      )}
+
+      <div className="text-xs text-zinc-500">Created: {todo.createdAt}</div>
+    </div>
+  );
+};
+
+type TodoCardOverlayProps = {
+  todo: TodoItem;
+  columnColor: string;
+  calendarEvents: any[];
+};
+
+const TodoCardOverlay = ({
+  todo,
+  columnColor,
+  calendarEvents,
+}: TodoCardOverlayProps) => {
+  const daysLeft = getTodoDaysLeft(todo, calendarEvents);
+  const completedSubtasks =
+    todo.subtasks?.filter((s) => s.completed).length || 0;
+  const totalSubtasks = todo.subtasks?.length || 0;
+
+  return (
+    <div className="bg-zinc-900 rounded-lg p-3 border border-zinc-700 shadow-xl w-72">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h4 className="font-semibold text-sm text-zinc-100 flex-1">
+          {todo.title}
+        </h4>
+        {daysLeft !== null && (
+          <span
+            className={`text-xs font-bold px-2 py-1 rounded-md ${
+              getDaysLeftDisplay(daysLeft).color
+            } ${getDaysLeftDisplay(daysLeft).bgColor}`}
+          >
+            {getDaysLeftDisplay(daysLeft).text}
+          </span>
+        )}
+      </div>
+
+      {totalSubtasks > 0 && (
+        <div className="text-xs text-zinc-400 mb-1">
+          {completedSubtasks}/{totalSubtasks} subtasks
+        </div>
+      )}
+
+      {totalSubtasks > 0 && (
+        <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-2">
+          <div
+            className="h-1.5 rounded-full transition-all"
+            style={{
+              width: `${(completedSubtasks / totalSubtasks) * 100}%`,
+              backgroundColor: columnColor,
+            }}
+          />
+        </div>
+      )}
+
+      <div className="text-xs text-zinc-500">Created: {todo.createdAt}</div>
+    </div>
+  );
+};
+
+type TodoColumnProps = {
+  column: (typeof COLUMNS)[number];
+  columnTodos: TodoItem[];
+  calendarEvents: any[];
+  onAdd: (columnId: TodoItem["column"]) => void;
+  onSelect: (todo: TodoItem) => void;
+  onDelete: (id: string) => void;
+};
+
+const TodoColumn = ({
+  column,
+  columnTodos,
+  calendarEvents,
+  onAdd,
+  onSelect,
+  onDelete,
+}: TodoColumnProps) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column-${column.id}`,
+    data: { columnId: column.id },
+  });
+
+  return (
+    <div
+      className="rounded-lg border-2 flex flex-col"
+      style={{ borderColor: column.color }}
+    >
+      <div
+        className="p-3 rounded-t-lg flex items-center justify-between"
+        style={{ backgroundColor: column.color + "20" }}
+      >
+        <h3 className="font-bold" style={{ color: column.color }}>
+          {column.title}
+        </h3>
+        <span
+          className="w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold text-white"
+          style={{ backgroundColor: column.color }}
+        >
+          {columnTodos.length}
+        </span>
+      </div>
+
+      <button
+        onClick={() => onAdd(column.id)}
+        className="m-3 p-2 text-sm border border-dashed rounded hover:bg-zinc-900 transition"
+        style={{
+          borderColor: column.color + "60",
+          color: column.color,
+        }}
+      >
+        + Add Task
+      </button>
+
+      <div
+        ref={setNodeRef}
+        className="flex-1 overflow-y-auto px-3 pb-3 space-y-2 min-h-[80px]"
+        style={{
+          boxShadow: isOver ? `0 0 0 2px ${column.color}` : undefined,
+          borderRadius: "0 0 8px 8px",
+        }}
+      >
+        <SortableContext
+          items={columnTodos.map((todo) => todo.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {columnTodos.map((todo) => (
+            <DraggableTodoCard
+              key={todo.id}
+              todo={todo}
+              columnColor={column.color}
+              calendarEvents={calendarEvents}
+              onSelect={onSelect}
+              onDelete={onDelete}
+            />
+          ))}
+        </SortableContext>
+      </div>
+    </div>
+  );
+};
+
 export const TodoList = () => {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null);
@@ -102,6 +394,24 @@ export const TodoList = () => {
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [activeTodoId, setActiveTodoId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  const columnMap = useMemo(() => buildColumnMap(todos), [todos]);
+  const activeTodo = useMemo(
+    () => todos.find((todo) => todo.id === activeTodoId) || null,
+    [activeTodoId, todos],
+  );
+  const activeColumnColor = useMemo(() => {
+    if (!activeTodo) return "#6366f1";
+    return (
+      COLUMNS.find((column) => column.id === activeTodo.column)?.color ||
+      "#6366f1"
+    );
+  }, [activeTodo]);
 
   // Load todos from localStorage on mount
   useEffect(() => {
@@ -125,6 +435,10 @@ export const TodoList = () => {
     if (isInitialized) {
       localStorage.setItem("personal-todos", JSON.stringify(todos));
       console.log("💾 Saved", todos.length, "todos to localStorage");
+      const counts = buildTodoCounts(todos);
+      window.dispatchEvent(
+        new CustomEvent("todoCountsUpdated", { detail: { counts } }),
+      );
     }
   }, [todos, isInitialized]);
 
@@ -217,122 +531,99 @@ export const TodoList = () => {
     }
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveTodoId(String(event.active.id));
+  };
+
+  const handleDragCancel = () => {
+    setActiveTodoId(null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveTodoId(null);
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (activeId === overId) return;
+
+    const activeTodo = todos.find((todo) => todo.id === activeId);
+    if (!activeTodo) return;
+
+    const columnsMap = buildColumnMap(todos);
+    const sourceColumnId = activeTodo.column;
+    const sourceList = columnsMap[sourceColumnId] || [];
+    const sourceIndex = sourceList.findIndex((todo) => todo.id === activeId);
+    if (sourceIndex < 0) return;
+
+    let targetColumnId = sourceColumnId;
+    let targetIndex = sourceIndex;
+
+    if (overId.startsWith("column-")) {
+      targetColumnId = overId.replace("column-", "") as TodoItem["column"];
+      targetIndex = (columnsMap[targetColumnId] || []).length;
+    } else {
+      const overTodo = todos.find((todo) => todo.id === overId);
+      if (!overTodo) return;
+      targetColumnId = overTodo.column;
+      targetIndex = (columnsMap[targetColumnId] || []).findIndex(
+        (todo) => todo.id === overId,
+      );
+    }
+
+    if (sourceColumnId === targetColumnId) {
+      columnsMap[sourceColumnId] = arrayMove(
+        sourceList,
+        sourceIndex,
+        targetIndex,
+      );
+    } else {
+      const nextSource = sourceList.filter((todo) => todo.id !== activeId);
+      const movedTodo = { ...activeTodo, column: targetColumnId };
+      const targetList = columnsMap[targetColumnId] || [];
+      const nextTarget = [...targetList];
+      nextTarget.splice(targetIndex, 0, movedTodo);
+      columnsMap[sourceColumnId] = nextSource;
+      columnsMap[targetColumnId] = nextTarget;
+    }
+
+    setTodos(flattenColumnMap(columnsMap));
+  };
+
   return (
     <div className="h-full flex flex-col bg-zinc-950">
       <div className="flex-1 overflow-y-auto p-4">
-        <div className="grid grid-cols-4 gap-4">
-          {COLUMNS.map((column) => {
-            const columnTodos = todos.filter((t) => t.column === column.id);
-            return (
-              <div
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          <div className="grid grid-cols-4 gap-4">
+            {COLUMNS.map((column) => (
+              <TodoColumn
                 key={column.id}
-                className="rounded-lg border-2 flex flex-col"
-                style={{ borderColor: column.color }}
-              >
-                {/* Column Header */}
-                <div
-                  className="p-3 rounded-t-lg flex items-center justify-between"
-                  style={{ backgroundColor: column.color + "20" }}
-                >
-                  <h3 className="font-bold" style={{ color: column.color }}>
-                    {column.title}
-                  </h3>
-                  <span
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold text-white"
-                    style={{ backgroundColor: column.color }}
-                  >
-                    {columnTodos.length}
-                  </span>
-                </div>
-
-                {/* Add Task Button */}
-                <button
-                  onClick={() => addTodo(column.id)}
-                  className="m-3 p-2 text-sm border border-dashed rounded hover:bg-zinc-900 transition"
-                  style={{
-                    borderColor: column.color + "60",
-                    color: column.color,
-                  }}
-                >
-                  + Add Task
-                </button>
-
-                {/* Tasks */}
-                <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-                  {columnTodos.map((todo) => {
-                    const completedSubtasks =
-                      todo.subtasks?.filter((s) => s.completed).length || 0;
-                    const totalSubtasks = todo.subtasks?.length || 0;
-                    const linkedEvent = todo.linkedEventId
-                      ? calendarEvents.find(
-                          (e: any) => e.id === todo.linkedEventId,
-                        )
-                      : null;
-                    const daysLeft = linkedEvent
-                      ? calculateDaysLeft(linkedEvent.date)
-                      : null;
-
-                    return (
-                      <div
-                        key={todo.id}
-                        onClick={() => setSelectedTodo(todo)}
-                        className="bg-zinc-900 rounded-lg p-3 border border-zinc-800 hover:border-zinc-700 cursor-pointer transition"
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <h4 className="font-semibold text-sm text-zinc-100 flex-1">
-                            {todo.title}
-                          </h4>
-                          {daysLeft !== null && (
-                            <span
-                              className={`text-xs font-bold px-2 py-1 rounded-md ${
-                                getDaysLeftDisplay(daysLeft).color
-                              } ${getDaysLeftDisplay(daysLeft).bgColor}`}
-                            >
-                              {getDaysLeftDisplay(daysLeft).text}
-                            </span>
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteTodo(todo.id);
-                            }}
-                            className="text-zinc-500 hover:text-red-400 transition"
-                          >
-                            <FaTrash size={12} />
-                          </button>
-                        </div>
-
-                        {totalSubtasks > 0 && (
-                          <div className="text-xs text-zinc-400 mb-1">
-                            {completedSubtasks}/{totalSubtasks} subtasks
-                          </div>
-                        )}
-
-                        {totalSubtasks > 0 && (
-                          <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-2">
-                            <div
-                              className="h-1.5 rounded-full transition-all"
-                              style={{
-                                width: `${
-                                  (completedSubtasks / totalSubtasks) * 100
-                                }%`,
-                                backgroundColor: column.color,
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        <div className="text-xs text-zinc-500">
-                          Created: {todo.createdAt}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                column={column}
+                columnTodos={columnMap[column.id] || []}
+                calendarEvents={calendarEvents}
+                onAdd={addTodo}
+                onSelect={setSelectedTodo}
+                onDelete={deleteTodo}
+              />
+            ))}
+          </div>
+          <DragOverlay>
+            {activeTodo ? (
+              <TodoCardOverlay
+                todo={activeTodo}
+                columnColor={activeColumnColor}
+                calendarEvents={calendarEvents}
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {/* Add Task Modal */}
