@@ -214,4 +214,68 @@ impl OllamaClient {
         let chat_response: ChatResponse = response.json().await?;
         Ok(chat_response.message.content)
     }
+
+    /// Chat stream with the model (conversational interface)
+    pub async fn chat_stream<F>(
+        &self,
+        messages: Vec<ChatMessage>,
+        mut on_chunk: F,
+    ) -> OllamaResult<()>
+    where F: FnMut(String) + Send + 'static 
+    {
+        #[derive(Serialize)]
+        struct ChatRequest {
+            model: String,
+            messages: Vec<ChatMessage>,
+            stream: bool,
+        }
+
+        let request = ChatRequest {
+            model: self.default_model.clone(),
+            messages,
+            stream: true,
+        };
+
+        let mut response = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+             let err_text = response.text().await.unwrap_or_default();
+             return Err(OllamaError::ApiError(format!("Stream error: {}", err_text)));
+        }
+
+        // Process NDJSON stream
+        use futures_util::StreamExt;
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = chunk_res?;
+            let text = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&text);
+            
+            // Ollama sends Ndjson. One JSON object per line.
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].trim().to_string();
+                buffer = buffer[pos+1..].to_string();
+                
+                if !line.is_empty() {
+                    // Parse the JSON chunk
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                        if let Some(msg) = json.get("message") {
+                            if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
+                                on_chunk(content.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
 }

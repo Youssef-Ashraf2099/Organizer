@@ -147,4 +147,77 @@ impl OpenAIClient {
         let text = parsed.choices.get(0).map(|c| c.message.content.clone()).unwrap_or_default();
         Ok(text)
     }
+
+    /// Streaming chat completion
+    pub async fn chat_stream<F>(&self, messages: Vec<ChatMessage>, mut on_chunk: F) -> OpenAIResult<()> 
+    where F: FnMut(String) + Send + 'static
+    {
+        #[derive(Serialize)]
+        struct ChatReq<'a> {
+            model: &'a str,
+            messages: Vec<ChatMessage>,
+            stream: bool,
+            #[serde(skip_serializing_if = "Option::is_none")] temperature: Option<f32>,
+        }
+        
+        let url = format!("{}/v1/chat/completions", self.base_url);
+        let body = ChatReq {
+            model: &self.model,
+            messages,
+            stream: true, // Enable streaming
+            temperature: Some(0.7),
+        };
+        
+        let mut req = self.client.post(url).json(&body);
+        if let Some(key) = &self.api_key {
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+        
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+             let err_text = resp.text().await.unwrap_or_default();
+             return Err(OpenAIError::ApiError(format!("Stream error: {}", err_text)));
+        }
+
+        // Process SSE stream
+        use futures_util::StreamExt;
+        
+        let mut stream = resp.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = chunk_res?;
+            let text = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&text);
+            
+            // SSE lines end with \n\n usually.
+            // A single chunk might contain multiple data: lines or partial lines
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].trim().to_string();
+                buffer = buffer[pos+1..].to_string();
+                
+                if line.starts_with("data: ") {
+                    let data = &line["data: ".len()..];
+                    if data == "[DONE]" {
+                        break;
+                    }
+                    
+                    // Parse the JSON chunk
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
+                            if let Some(first_choice) = choices.first() {
+                                if let Some(delta) = first_choice.get("delta") {
+                                    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                        on_chunk(content.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
 }

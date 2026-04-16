@@ -29,14 +29,14 @@ pub fn get_migrations() -> Vec<Migration> {
                 -- Documents Table (Sidecar PDF Storage)
                 CREATE TABLE IF NOT EXISTS documents (
                     id TEXT PRIMARY KEY,
-                    path TEXT NOT NULL, -- Relative to AppLocalData/documents/
+                    path TEXT NOT NULL, -- Relative to AppLocalData/documents/  
                     hash TEXT,
                     metadata JSON,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
 
                 -- Chunks Table (RAG Ready - Vectors)
-                -- Note: Embedding column will be standard BLOB for now, 
+                -- Note: Embedding column will be standard BLOB for now,        
                 -- ready for sqlite-vec 'float32' interpretation later.
                 CREATE TABLE IF NOT EXISTS chunks (
                     id TEXT PRIMARY KEY,
@@ -48,7 +48,7 @@ pub fn get_migrations() -> Vec<Migration> {
 
                 -- FTS5 Contentless Virtual Table for Instant Search
                 -- Indexing blocks content.
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_blocks USING fts5(
+                CREATE VIRTUAL TABLE IF NOT EXISTS fts_blocks USING fts5(       
                     content,
                     content='blocks',
                     content_rowid='rowid'

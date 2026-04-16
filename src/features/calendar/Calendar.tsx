@@ -6,6 +6,14 @@ import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import { FaTimes } from "@react-icons/all-files/fa/FaTimes";
 import { notificationService } from "../../core/services/notificationService";
 
+type RepeatPattern = "daily" | "weekly" | "monthly";
+
+const REPEAT_PATTERNS: { value: RepeatPattern; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
 export type CalendarEvent = {
   id: string;
   title: string;
@@ -15,6 +23,36 @@ export type CalendarEvent = {
   description?: string;
   linkedTaskId?: string;
   reminder?: string; // ISO datetime for reminder
+  repeatEnabled?: boolean;
+  repeatPattern?: RepeatPattern;
+};
+
+type CalendarOccurrence = CalendarEvent & {
+  occurrenceId: string;
+  occurrenceDate: string;
+};
+
+const occursOnDate = (event: CalendarEvent, dateStr: string) => {
+  if (!event.repeatEnabled || !event.repeatPattern) {
+    return event.date === dateStr;
+  }
+  if (dateStr < event.date) return false;
+
+  if (event.repeatPattern === "daily") return true;
+
+  if (event.repeatPattern === "weekly") {
+    const eventDate = new Date(`${event.date}T00:00`);
+    const targetDate = new Date(`${dateStr}T00:00`);
+    const diffDays = Math.floor(
+      (targetDate.getTime() - eventDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    return diffDays % 7 === 0;
+  }
+
+  // Monthly recurrence is based on day-of-month.
+  const eventDay = Number(event.date.split("-")[2]);
+  const targetDay = Number(dateStr.split("-")[2]);
+  return eventDay === targetDay;
 };
 
 const EVENT_TAGS = [
@@ -107,7 +145,14 @@ export const Calendar = () => {
   };
 
   const getEventsForDate = (dateStr: string) => {
-    return events.filter((e) => e.date === dateStr);
+    return events
+      .filter((e) => occursOnDate(e, dateStr))
+      .map((e) => ({
+        ...e,
+        occurrenceDate: dateStr,
+        occurrenceId: `${e.id}:${dateStr}`,
+      }))
+      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   };
 
   const isToday = (day: number) => {
@@ -221,7 +266,7 @@ export const Calendar = () => {
         <div className="space-y-0.5">
           {dayEvents.slice(0, 1).map((event) => (
             <div
-              key={event.id}
+              key={event.occurrenceId}
               className={`text-[10px] px-1 py-0.5 rounded truncate ${
                 isPast ? "opacity-70" : ""
               }`}
@@ -244,7 +289,9 @@ export const Calendar = () => {
     );
   }
 
-  const selectedEvents = selectedDate ? getEventsForDate(selectedDate) : [];
+  const selectedEvents: CalendarOccurrence[] = selectedDate
+    ? getEventsForDate(selectedDate)
+    : [];
 
   return (
     <div className="h-full flex flex-col bg-zinc-950 text-zinc-100">
@@ -333,7 +380,7 @@ export const Calendar = () => {
                   const tagDef = EVENT_TAGS.find((t) => t.name === event.tag);
                   return (
                     <div
-                      key={event.id}
+                      key={event.occurrenceId}
                       className="border-2 rounded-lg p-3"
                       style={{ borderColor: TAG_COLOR_MAP[event.tag] }}
                     >
@@ -354,6 +401,11 @@ export const Calendar = () => {
                             {event.time && (
                               <div className="text-sm text-zinc-400">
                                 ⏰ {event.time}
+                              </div>
+                            )}
+                            {event.repeatEnabled && event.repeatPattern && (
+                              <div className="text-xs text-emerald-300 mt-1">
+                                Repeats {event.repeatPattern}
                               </div>
                             )}
                           </div>
@@ -403,6 +455,8 @@ export const Calendar = () => {
                     date: selectedDate,
                     tag: "other",
                     time: "",
+                    repeatEnabled: false,
+                    repeatPattern: "weekly",
                   });
                 }}
                 className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 rounded font-medium transition flex items-center justify-center gap-2"
@@ -550,6 +604,41 @@ export const Calendar = () => {
                     ✕ Clear reminder
                   </button>
                 )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 text-sm text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editingEvent.repeatEnabled)}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        repeatEnabled: e.target.checked,
+                        repeatPattern: editingEvent.repeatPattern || "weekly",
+                      })
+                    }
+                    className="w-4 h-4 rounded border-zinc-600 text-blue-600"
+                  />
+                  Repeat this event
+                </label>
+                <select
+                  value={editingEvent.repeatPattern || "weekly"}
+                  onChange={(e) =>
+                    setEditingEvent({
+                      ...editingEvent,
+                      repeatPattern: e.target.value as RepeatPattern,
+                    })
+                  }
+                  disabled={!editingEvent.repeatEnabled}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100 disabled:opacity-50"
+                >
+                  {REPEAT_PATTERNS.map((pattern) => (
+                    <option key={pattern.value} value={pattern.value}>
+                      Repeat {pattern.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

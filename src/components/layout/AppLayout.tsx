@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Sidebar } from "../../features/sidebar/Sidebar";
 import { OmniEditor } from "../../features/editor/OmniEditor";
 import { AgentPanel } from "../../features/ai/AgentPanel";
@@ -7,15 +7,23 @@ import { cn } from "../../lib/utils";
 import { usePageStore } from "../../core/store/pageStore";
 import { FaRobot } from "@react-icons/all-files/fa/FaRobot";
 import { FaListUl } from "@react-icons/all-files/fa/FaListUl";
-import { FaCalendar } from "@react-icons/all-files/fa/FaCalendar";
-import { FaFile } from "@react-icons/all-files/fa/FaFile";
+import { FaCalendarAlt } from "@react-icons/all-files/fa/FaCalendarAlt";
+import { FaBookOpen } from "@react-icons/all-files/fa/FaBookOpen";
 import { FaComments } from "@react-icons/all-files/fa/FaComments";
+import { FaCrosshairs } from "@react-icons/all-files/fa/FaCrosshairs";
 import { FaInbox } from "@react-icons/all-files/fa/FaInbox";
 import { FaSpinner } from "@react-icons/all-files/fa/FaSpinner";
 import { FaCheck } from "@react-icons/all-files/fa/FaCheck";
+import { FaWallet } from "@react-icons/all-files/fa/FaWallet";
+import { FaProjectDiagram } from "@react-icons/all-files/fa/FaProjectDiagram";
 import { TodoList } from "../../features/todo/TodoList";
+import { TodayObjective } from "../../features/todo/TodayObjective";
 import { Calendar } from "../../features/calendar/Calendar";
 import { AIChat } from "../../features/ai/AIChat";
+import { WeeklyRoadmap } from "../../features/roadmap/WeeklyRoadmap";
+import { BudgetTracker } from "../../features/budget/BudgetTracker";
+import { DiagramStudio } from "../../features/diagrams/DiagramStudio";
+import { FaMapSigns } from "@react-icons/all-files/fa/FaMapSigns";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   enable as enableAutostart,
@@ -26,8 +34,20 @@ import {
   NotificationInbox,
 } from "../../features/notifications/NotificationInbox";
 import { notificationService } from "../../core/services/notificationService";
+import {
+  getTodayObjectiveStats,
+  useObjectiveStore,
+} from "../../core/store/objectiveStore";
 
-type RightPanelView = "editor" | "todo" | "calendar" | "aichat";
+type RightPanelView =
+  | "editor"
+  | "todo"
+  | "calendar"
+  | "budget"
+  | "diagrams"
+  | "objective"
+  | "roadmap"
+  | "aichat";
 
 type TodoColumn = "backlog" | "todo" | "inprogress" | "done";
 type TodoCounts = Record<TodoColumn, number>;
@@ -60,6 +80,14 @@ const loadTodoCounts = (): TodoCounts => {
   }
 };
 
+const todayDateKey = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
 export const AppLayout = () => {
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [rightPanelView, setRightPanelView] =
@@ -77,6 +105,16 @@ export const AppLayout = () => {
     executeAction,
     setSelectedText,
   } = useAgentPanel();
+
+  // Subscribe to raw objectives array to avoid infinite loop from selector returning new array ref
+  const objectives = useObjectiveStore((s) => s.objectives);
+  const objectiveStats = useMemo(() => {
+    const todayKey = todayDateKey();
+    const todayObjectives = objectives.filter(
+      (obj) => obj.objectiveDate === todayKey,
+    );
+    return getTodayObjectiveStats(todayObjectives);
+  }, [objectives]);
 
   // Start notification service on mount
   useEffect(() => {
@@ -217,7 +255,7 @@ export const AppLayout = () => {
                   : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
               )}
             >
-              <FaFile size={14} />
+              <FaBookOpen size={14} />
               Pages
             </button>
             <button
@@ -272,12 +310,65 @@ export const AppLayout = () => {
                   : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
               )}
             >
-              <FaCalendar size={14} />
+              <FaCalendarAlt size={14} />
               Calendar
               {calendarNudge && (
                 <span className="absolute top-2 right-2 flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setRightPanelView("budget")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "budget"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaWallet size={14} />
+              Budget
+            </button>
+            <button
+              onClick={() => setRightPanelView("diagrams")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "diagrams"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaProjectDiagram size={14} />
+              Diagrams
+            </button>
+            <button
+              onClick={() => setRightPanelView("roadmap")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "roadmap"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaMapSigns size={14} />
+              Roadmap
+            </button>
+            <button
+              onClick={() => setRightPanelView("objective")}
+              className={cn(
+                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                rightPanelView === "objective"
+                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+              )}
+            >
+              <FaCrosshairs size={14} />
+              Today Objective
+              {objectiveStats.total > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-500 text-[10px] font-semibold">
+                  {objectiveStats.completed}/{objectiveStats.total}
                 </span>
               )}
             </button>
@@ -334,6 +425,10 @@ export const AppLayout = () => {
               )}
               {rightPanelView === "todo" && <TodoList />}
               {rightPanelView === "calendar" && <Calendar />}
+              {rightPanelView === "budget" && <BudgetTracker />}
+              {rightPanelView === "diagrams" && <DiagramStudio />}
+              {rightPanelView === "roadmap" && <WeeklyRoadmap />}
+              {rightPanelView === "objective" && <TodayObjective />}
               {rightPanelView === "aichat" && <AIChat />}
             </motion.div>
           </AnimatePresence>

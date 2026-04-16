@@ -8,6 +8,7 @@ use tauri::Manager;
 use uuid::Uuid;
 use ai::{OllamaClient, OpenAIClient, RAGEngine, operations::AIAction, AiConfig, BackendType, ChatMessage};
 use std::sync::Mutex;
+use database::diagrams::{self, DiagramFolder, DiagramLibrary, DiagramRecord, SaveDiagramInput};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AssetInfo {
@@ -242,6 +243,36 @@ async fn read_asset_file(app: tauri::AppHandle, file_path: String) -> Result<Vec
 }
 
 #[tauri::command]
+fn diagram_get_library(app: tauri::AppHandle) -> Result<DiagramLibrary, String> {
+    diagrams::get_library(app)
+}
+
+#[tauri::command]
+fn diagram_create_folder(app: tauri::AppHandle, name: String) -> Result<DiagramFolder, String> {
+    diagrams::create_folder(app, name)
+}
+
+#[tauri::command]
+fn diagram_rename_folder(app: tauri::AppHandle, folder_id: String, name: String) -> Result<(), String> {
+    diagrams::rename_folder(app, folder_id, name)
+}
+
+#[tauri::command]
+fn diagram_delete_folder(app: tauri::AppHandle, folder_id: String) -> Result<(), String> {
+    diagrams::delete_folder(app, folder_id)
+}
+
+#[tauri::command]
+fn diagram_save(app: tauri::AppHandle, input: SaveDiagramInput) -> Result<DiagramRecord, String> {
+    diagrams::save_diagram(app, input)
+}
+
+#[tauri::command]
+fn diagram_delete(app: tauri::AppHandle, diagram_id: String) -> Result<(), String> {
+    diagrams::delete_diagram(app, diagram_id)
+}
+
+#[tauri::command]
 async fn delete_asset_file(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
     let app_data_dir = app
         .path()
@@ -382,6 +413,36 @@ async fn ai_chat(
     }
 }
 
+/// Chat with AI model (streaming)
+#[tauri::command]
+async fn ai_chat_stream(
+    state: tauri::State<'_, AiState>,
+    messages: Vec<ChatMessage>,
+    model: Option<String>,
+    backend: Option<BackendType>,
+    on_chunk: tauri::ipc::Channel<String>,
+) -> Result<(), String> {
+    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
+    
+    let target_backend = backend.unwrap_or(cfg.backend);
+    let target_model = model.unwrap_or(cfg.model);
+    
+    match target_backend {
+        BackendType::Ollama => {
+            let client = OllamaClient::new(Some(cfg.base_url.clone()), target_model);
+            client.chat_stream(messages, move |chunk| {
+                let _ = on_chunk.send(chunk);
+            }).await.map_err(|e| e.to_string())
+        }
+        BackendType::OpenAI => {
+            let client = OpenAIClient::new(cfg.base_url.clone(), target_model, None);
+            client.chat_stream(messages, move |chunk| {
+                let _ = on_chunk.send(chunk);
+            }).await.map_err(|e| e.to_string())
+        }
+    }
+}
+
 /// State struct for sharing dependencies across commands
 pub struct AiState {
     pub config: Mutex<AiConfig>,
@@ -416,6 +477,12 @@ pub fn run() {
             get_asset_url,
             delete_asset_file,
             read_asset_file,
+            diagram_get_library,
+            diagram_create_folder,
+            diagram_rename_folder,
+            diagram_delete_folder,
+            diagram_save,
+            diagram_delete,
             ai_health_check,
             ai_list_models,
             ai_get_actions,
@@ -423,6 +490,7 @@ pub fn run() {
             ai_get_state,
             ai_set_state,
             ai_chat,
+            ai_chat_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

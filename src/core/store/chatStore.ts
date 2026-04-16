@@ -22,6 +22,8 @@ interface ChatState {
   deleteConversation: (id: string) => void;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<Message, "id" | "timestamp">) => void;
+  addMessageWithId: (conversationId: string, message: Omit<Message, "timestamp">) => void;
+  updateMessage: (conversationId: string, messageId: string, newContent: string) => void;
   updateConversationTitle: (id: string, title: string) => void;
 }
 
@@ -83,6 +85,37 @@ export const useChatStore = create<ChatState>()(
               ...c,
               title,
               messages: [...c.messages, newMessage],
+            };
+          }),
+        }));
+      },
+
+      addMessageWithId: (conversationId, message) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            const newMessage: Message = {
+              ...message,
+              timestamp: Date.now(),
+            };
+            let title = c.title;
+            if (c.messages.length === 0 && message.role === "user") {
+              title = message.content.slice(0, 30) || "New Chat";
+            }
+            return { ...c, title, messages: [...c.messages, newMessage] };
+          }),
+        }));
+      },
+
+      updateMessage: (conversationId, messageId, newContent) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageId ? { ...m, content: newContent } : m
+              ),
             };
           }),
         }));

@@ -23,12 +23,10 @@ import { MermaidBlock } from "./MermaidBlock";
 import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
 import { AudioBlock } from "./AudioBlock";
-import {
-  markdownToBlocks,
-  htmlToMarkdown,
-  organizePageStructure,
-} from "./markdownParser";
+import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
 import { aiAnimator } from "../ai/aiEditorAnimations";
+import { aiService } from "../ai/aiService";
+import { motion } from "framer-motion";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
@@ -90,6 +88,7 @@ export const OmniEditor = ({
   // Editor instance
   const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isMagicRunning, setIsMagicRunning] = useState(false);
 
   // Save Logic
   const saveTimeoutRef = useRef<number | null>(null);
@@ -721,6 +720,16 @@ export const OmniEditor = ({
   const handlePaste = async (event: React.ClipboardEvent) => {
     if (!editor || !activePageId) return;
 
+    const target = event.target as HTMLElement | null;
+    const isNativeTextInput = Boolean(
+      target?.closest("input, textarea, [contenteditable='false']"),
+    );
+
+    // Allow native paste behavior for title input and custom block textareas.
+    if (isNativeTextInput) {
+      return;
+    }
+
     // Check for image files first
     const items = event.clipboardData.items;
     let handledImage = false;
@@ -793,29 +802,10 @@ export const OmniEditor = ({
         }
       }
 
-      // Try plain text as markdown (common for AI responses)
+      // For plain text, rely on BlockNote native paste behavior.
+      // This avoids duplicate insertion when both native and custom handlers run.
       if (plainText) {
-        event.preventDefault();
-        const textBlocks = markdownToBlocks(plainText);
-        console.debug("Plain text detected - parsing as markdown:", {
-          lines: plainText.split("\n").length,
-          blocks: textBlocks.length,
-        });
-
-        if (textBlocks.length > 0) {
-          editor.insertBlocks(
-            textBlocks,
-            editor.getTextCursorPosition().block,
-            "after",
-          );
-        } else {
-          // Last resort: insert as plain paragraph
-          editor.insertBlocks(
-            [{ type: "paragraph", content: plainText }],
-            editor.getTextCursorPosition().block,
-            "after",
-          );
-        }
+        return;
       }
     }
   };
@@ -1133,7 +1123,10 @@ export const OmniEditor = ({
   }
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, scale: 0.98, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950 px-8 py-6 relative"
       style={{ scrollBehavior: "smooth" }}
       onMouseDown={handleMouseDown}
@@ -1165,58 +1158,121 @@ export const OmniEditor = ({
             usePageStore.getState().pages[activePageId]?.title || ""
           }
           onChange={(e) => updatePageTitle(activePageId, e.target.value)}
+          onPaste={(e) => e.stopPropagation()}
         />
         <div className="flex gap-2">
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => setShowSaveTemplateDialog(true)}
-            className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition flex items-center gap-1"
+            className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700 transition flex items-center gap-1 shadow-md"
             title="Save as Template"
           >
             <FaSave size={14} />
             Save as Template
-          </button>
+          </motion.button>
 
-          {/* Organize Page Button */}
-          <button
-            onClick={() => {
-              if (!editor || !editor.document) {
-                console.error("Editor not ready");
-                return;
-              }
+          {/* AI Organize Page Button */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={async () => {
+              if (!editor || !editor.document) return;
+              if (isMagicRunning) return;
+
               try {
-                console.log("Starting page organization...");
-                console.log("Current blocks:", editor.document);
+                setIsMagicRunning(true);
+                const isOllamaRunning = await aiService.healthCheck();
+                if (!isOllamaRunning) {
+                  alert(
+                    "AI is not running. Please start Ollama or check settings.",
+                  );
+                  return;
+                }
 
-                const blocks = [...editor.document]; // Make a copy
-                const organized = organizePageStructure(blocks);
+                const markdown = await editor.blocksToMarkdownLossy(
+                  editor.document,
+                );
+                const aiState = await aiService.getState();
 
-                console.log("Organized blocks:", organized);
+                const prompt = `You are an expert copy editor. Reorganize and enhance the following markdown document. Fix headings, improve bullet points, and make the flow professional. Output EXACTLY ONE JSON action of type "replace_all" with the new content, per your system rules.\n\nCURRENT PAGE CONTENT:\n${markdown}`;
 
-                // Update the editor with reorganized content
-                if (organized.length > 0) {
-                  // Replace all blocks with organized ones
-                  editor.replaceBlocks(editor.document, organized);
-                  console.debug("✅ Page reorganized successfully!");
+                const messages = [
+                  { role: "system", content: aiService.getToolDefinitions() },
+                  { role: "user", content: prompt },
+                ];
+
+                let fullResponse = "";
+                await aiService.chatStream(
+                  messages,
+                  aiState.model,
+                  aiState.backend,
+                  (_chunk, accum) => {
+                    fullResponse = accum;
+                  },
+                );
+
+                const parsed = aiService.extractJsonFromResponse(fullResponse);
+                if (parsed.commands && parsed.commands.length > 0) {
+                  for (const cmd of parsed.commands) {
+                    window.dispatchEvent(
+                      new CustomEvent("aiToolCommand", { detail: cmd }),
+                    );
+                  }
                 } else {
-                  console.warn("No reorganized blocks to apply");
+                  console.warn(
+                    "AI didn't return a JSON command, parsing raw text",
+                    fullResponse,
+                  );
+                  if (parsed.textResponse.trim()) {
+                    window.dispatchEvent(
+                      new CustomEvent("aiToolCommand", {
+                        detail: {
+                          action: "replace_all",
+                          params: { content: parsed.textResponse },
+                        },
+                      }),
+                    );
+                  } else {
+                    alert("AI couldn't format the page. Try again.");
+                  }
                 }
               } catch (error) {
-                console.error("❌ Error organizing page:", error);
-                alert("Error organizing page. Check console for details.");
+                console.error("❌ Error organizing page via AI:", error);
+                alert("Failed to organize page. Check console for details.");
+              } finally {
+                setIsMagicRunning(false);
               }
             }}
-            className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-md text-sm hover:bg-zinc-700 transition flex items-center gap-1"
-            title="Organize page structure - auto-detect headings and lists, remove broken items"
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg ${
+              isMagicRunning
+                ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:shadow-blue-500/10 border border-transparent hover:border-white/5"
+            }`}
+            title="Use AI to automatically format and organize this page"
           >
-            <FaMagic size={14} />
-            Organize
-          </button>
+            {isMagicRunning ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+              >
+                <FaMagic size={14} className="text-blue-400" />
+              </motion.div>
+            ) : (
+              <FaMagic size={14} className="text-purple-400" />
+            )}
+            {isMagicRunning ? "Organizing..." : "Organize"}
+          </motion.button>
 
           <div className="relative group z-50">
-            <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-black/20">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-black/20"
+            >
               Export
               <FaChevronDown className="text-xs text-zinc-400 group-hover:rotate-180 transition-transform duration-300" />
-            </button>
+            </motion.button>
 
             <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right scale-95 group-hover:scale-100">
               <button
@@ -1552,6 +1608,6 @@ export const OmniEditor = ({
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };

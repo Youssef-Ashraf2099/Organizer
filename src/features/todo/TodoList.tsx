@@ -18,7 +18,16 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
+import { FaCheck } from "@react-icons/all-files/fa/FaCheck";
 import { notificationService } from "../../core/services/notificationService";
+
+type RepeatPattern = "daily" | "weekly" | "monthly";
+
+const REPEAT_PATTERNS: { value: RepeatPattern; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
 
 // Helper function to calculate days left until a date
 const calculateDaysLeft = (dateStr: string): number => {
@@ -78,9 +87,88 @@ type TodoItem = {
   scheduledFor?: string;
   linkedEventId?: string;
   reminder?: string;
+  repeatEnabled?: boolean;
+  repeatPattern?: RepeatPattern;
   subtasks?: { id: string; title: string; completed: boolean }[];
   checklist?: { id: string; text: string; completed: boolean }[];
   createdAt: string;
+};
+
+type CalendarEventRef = {
+  id: string;
+  date: string;
+  repeatEnabled?: boolean;
+  repeatPattern?: RepeatPattern;
+};
+
+const formatDateOnly = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const formatDateTimeLocal = (date: Date) => {
+  const datePart = formatDateOnly(date);
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${datePart}T${h}:${min}`;
+};
+
+const shiftDateByPattern = (
+  datetimeLocal: string | undefined,
+  pattern: RepeatPattern,
+) => {
+  if (!datetimeLocal) return undefined;
+  const base = new Date(datetimeLocal);
+  if (Number.isNaN(base.getTime())) return undefined;
+
+  if (pattern === "daily") base.setDate(base.getDate() + 1);
+  if (pattern === "weekly") base.setDate(base.getDate() + 7);
+  if (pattern === "monthly") base.setMonth(base.getMonth() + 1);
+
+  return formatDateTimeLocal(base);
+};
+
+const shiftDateOnlyByPattern = (dateOnly: string, pattern: RepeatPattern) => {
+  const base = new Date(`${dateOnly}T00:00`);
+  if (Number.isNaN(base.getTime())) return dateOnly;
+
+  if (pattern === "daily") base.setDate(base.getDate() + 1);
+  if (pattern === "weekly") base.setDate(base.getDate() + 7);
+  if (pattern === "monthly") base.setMonth(base.getMonth() + 1);
+
+  return formatDateOnly(base);
+};
+
+const getUpcomingRecurringEventDate = (event: CalendarEventRef) => {
+  if (!event.repeatEnabled || !event.repeatPattern) return event.date;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let next = event.date;
+  let guard = 0;
+
+  while (next < formatDateOnly(today) && guard < 500) {
+    next = shiftDateOnlyByPattern(next, event.repeatPattern);
+    guard += 1;
+  }
+
+  return next;
+};
+
+const buildNextRecurringTodo = (todo: TodoItem): TodoItem | null => {
+  if (!todo.repeatEnabled || !todo.repeatPattern) return null;
+
+  return {
+    ...todo,
+    id: crypto.randomUUID(),
+    column: "todo",
+    completed: false,
+    scheduledFor: shiftDateByPattern(todo.scheduledFor, todo.repeatPattern),
+    reminder: shiftDateByPattern(todo.reminder, todo.repeatPattern),
+    createdAt: new Date().toLocaleDateString(),
+  };
 };
 
 const TASK_TAGS = [
@@ -138,13 +226,16 @@ const buildColumnMap = (items: TodoItem[]) => {
 const flattenColumnMap = (map: Record<TodoItem["column"], TodoItem[]>) =>
   COLUMNS.flatMap((column) => map[column.id] || []);
 
-const getTodoDaysLeft = (todo: TodoItem, calendarEvents: any[]) => {
+const getTodoDaysLeft = (
+  todo: TodoItem,
+  calendarEvents: CalendarEventRef[],
+) => {
   if (!todo.linkedEventId) return null;
   const linkedEvent = calendarEvents.find(
-    (event: any) => event.id === todo.linkedEventId,
+    (event) => event.id === todo.linkedEventId,
   );
   if (!linkedEvent) return null;
-  return calculateDaysLeft(linkedEvent.date);
+  return calculateDaysLeft(getUpcomingRecurringEventDate(linkedEvent));
 };
 
 type DraggableTodoCardProps = {
@@ -303,6 +394,7 @@ type TodoColumnProps = {
   onAdd: (columnId: TodoItem["column"]) => void;
   onSelect: (todo: TodoItem) => void;
   onDelete: (id: string) => void;
+  onClearDone?: () => void;
 };
 
 const TodoColumn = ({
@@ -312,6 +404,7 @@ const TodoColumn = ({
   onAdd,
   onSelect,
   onDelete,
+  onClearDone,
 }: TodoColumnProps) => {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${column.id}`,
@@ -338,16 +431,31 @@ const TodoColumn = ({
         </span>
       </div>
 
-      <button
-        onClick={() => onAdd(column.id)}
-        className="m-3 p-2 text-sm border border-dashed rounded hover:bg-zinc-900 transition"
-        style={{
-          borderColor: column.color + "60",
-          color: column.color,
-        }}
-      >
-        + Add Task
-      </button>
+      <div className="m-3 space-y-2">
+        <button
+          onClick={() => onAdd(column.id)}
+          className="w-full p-2 text-sm border border-dashed rounded hover:bg-zinc-900 transition"
+          style={{
+            borderColor: column.color + "60",
+            color: column.color,
+          }}
+        >
+          + Add Task
+        </button>
+        {column.id === "done" && columnTodos.length > 0 && onClearDone && (
+          <button
+            onClick={onClearDone}
+            className="w-full p-2 text-sm border rounded hover:bg-red-900/30 transition flex items-center justify-center gap-2"
+            style={{
+              borderColor: "#ef4444",
+              color: "#ef4444",
+            }}
+          >
+            <FaCheck className="text-xs" />
+            Clear All Done
+          </button>
+        )}
+      </div>
 
       <div
         ref={setNodeRef}
@@ -387,12 +495,14 @@ export const TodoList = () => {
     description: "",
     priority: "medium",
     tags: [],
+    repeatEnabled: false,
+    repeatPattern: "weekly",
     subtasks: [],
     checklist: [],
   });
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [newChecklistItem, setNewChecklistItem] = useState("");
-  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEventRef[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeTodoId, setActiveTodoId] = useState<string | null>(null);
 
@@ -413,6 +523,12 @@ export const TodoList = () => {
     );
   }, [activeTodo]);
 
+  const emitTodosUpdated = (nextTodos: TodoItem[]) => {
+    window.dispatchEvent(
+      new CustomEvent("todosUpdated", { detail: { todos: nextTodos } }),
+    );
+  };
+
   // Load todos from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("personal-todos");
@@ -420,8 +536,10 @@ export const TodoList = () => {
       const loadedTodos = JSON.parse(saved);
       console.log("📋 Loaded", loadedTodos.length, "todos from localStorage");
       setTodos(loadedTodos);
+      emitTodosUpdated(loadedTodos);
     } else {
       console.log("📋 No saved todos found");
+      emitTodosUpdated([]);
     }
     const savedEvents = localStorage.getItem("calendar-events");
     if (savedEvents) {
@@ -439,8 +557,23 @@ export const TodoList = () => {
       window.dispatchEvent(
         new CustomEvent("todoCountsUpdated", { detail: { counts } }),
       );
+      emitTodosUpdated(todos);
     }
   }, [todos, isInitialized]);
+
+  useEffect(() => {
+    const handleExternalUpdate = (event: Event) => {
+      const custom = event as CustomEvent<{ todos?: TodoItem[] }>;
+      if (Array.isArray(custom.detail?.todos)) {
+        setTodos(custom.detail.todos);
+      }
+    };
+
+    window.addEventListener("todoExternalUpdate", handleExternalUpdate);
+    return () => {
+      window.removeEventListener("todoExternalUpdate", handleExternalUpdate);
+    };
+  }, []);
 
   const addTodo = (column: TodoItem["column"]) => {
     setAddToColumn(column);
@@ -449,6 +582,8 @@ export const TodoList = () => {
       description: "",
       priority: "medium",
       tags: [],
+      repeatEnabled: false,
+      repeatPattern: "weekly",
       subtasks: [],
       checklist: [],
     });
@@ -469,6 +604,8 @@ export const TodoList = () => {
       scheduledFor: newTask.scheduledFor,
       linkedEventId: newTask.linkedEventId,
       reminder: newTask.reminder,
+      repeatEnabled: newTask.repeatEnabled || false,
+      repeatPattern: newTask.repeatPattern || "weekly",
       subtasks: newTask.subtasks || [],
       checklist: newTask.checklist || [],
       createdAt: new Date().toLocaleDateString(),
@@ -492,6 +629,8 @@ export const TodoList = () => {
       description: "",
       priority: "medium",
       tags: [],
+      repeatEnabled: false,
+      repeatPattern: "weekly",
       subtasks: [],
       checklist: [],
     });
@@ -505,8 +644,53 @@ export const TodoList = () => {
     }
   };
 
+  const clearDoneTasks = () => {
+    const doneCount = todos.filter((t) => t.column === "done").length;
+    if (doneCount === 0) return;
+
+    if (
+      confirm(
+        `Clear all ${doneCount} completed task(s)? This action cannot be undone.`,
+      )
+    ) {
+      // Remove reminders for all done tasks
+      todos
+        .filter((t) => t.column === "done")
+        .forEach((t) => {
+          notificationService.removeRemindersForItem(t.id);
+        });
+
+      // Filter out all done tasks
+      const remainingTodos = todos.filter((t) => t.column !== "done");
+      setTodos(remainingTodos);
+
+      // Clear selected todo if it was in done column
+      if (selectedTodo?.column === "done") {
+        setSelectedTodo(null);
+      }
+    }
+  };
+
   const updateTodo = (id: string, updates: Partial<TodoItem>) => {
-    setTodos(todos.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+    const current = todos.find((t) => t.id === id);
+    const nextItems = todos.map((t) =>
+      t.id === id ? { ...t, ...updates } : t,
+    );
+    const updatedItem = nextItems.find((t) => t.id === id);
+    const movedToDone =
+      current &&
+      updatedItem &&
+      current.column !== "done" &&
+      updatedItem.column === "done";
+
+    if (movedToDone && updatedItem?.repeatEnabled) {
+      const nextRecurring = buildNextRecurringTodo(updatedItem);
+      if (nextRecurring) {
+        nextItems.push(nextRecurring);
+      }
+    }
+
+    setTodos(nextItems);
     if (selectedTodo?.id === id) {
       setSelectedTodo({ ...selectedTodo, ...updates });
     }
@@ -586,6 +770,17 @@ export const TodoList = () => {
       nextTarget.splice(targetIndex, 0, movedTodo);
       columnsMap[sourceColumnId] = nextSource;
       columnsMap[targetColumnId] = nextTarget;
+
+      if (
+        sourceColumnId !== "done" &&
+        targetColumnId === "done" &&
+        activeTodo.repeatEnabled
+      ) {
+        const nextRecurring = buildNextRecurringTodo(activeTodo);
+        if (nextRecurring) {
+          columnsMap.todo = [...(columnsMap.todo || []), nextRecurring];
+        }
+      }
     }
 
     setTodos(flattenColumnMap(columnsMap));
@@ -611,6 +806,7 @@ export const TodoList = () => {
                 onAdd={addTodo}
                 onSelect={setSelectedTodo}
                 onDelete={deleteTodo}
+                onClearDone={column.id === "done" ? clearDoneTasks : undefined}
               />
             ))}
           </div>
@@ -784,6 +980,42 @@ export const TodoList = () => {
                     className="w-full bg-zinc-800 border-2 border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-100 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition cursor-pointer"
                   />
                 </div>
+              </div>
+
+              {/* Recurrence */}
+              <div className="grid grid-cols-2 gap-4">
+                <label className="flex items-center gap-2 text-sm font-semibold text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(newTask.repeatEnabled)}
+                    onChange={(e) =>
+                      setNewTask({
+                        ...newTask,
+                        repeatEnabled: e.target.checked,
+                        repeatPattern: newTask.repeatPattern || "weekly",
+                      })
+                    }
+                    className="w-4 h-4 rounded border-zinc-600 text-indigo-600"
+                  />
+                  Repeat this task
+                </label>
+                <select
+                  value={newTask.repeatPattern || "weekly"}
+                  onChange={(e) =>
+                    setNewTask({
+                      ...newTask,
+                      repeatPattern: e.target.value as RepeatPattern,
+                    })
+                  }
+                  disabled={!newTask.repeatEnabled}
+                  className="w-full bg-zinc-800 border-2 border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-100 disabled:opacity-50"
+                >
+                  {REPEAT_PATTERNS.map((pattern) => (
+                    <option key={pattern.value} value={pattern.value}>
+                      Repeat {pattern.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Link to Event */}
@@ -1209,6 +1441,42 @@ export const TodoList = () => {
                     className="w-full bg-zinc-800 border-2 border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-100 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition cursor-pointer"
                   />
                 </div>
+              </div>
+
+              {/* Recurrence */}
+              <div className="grid grid-cols-2 gap-4">
+                <label className="flex items-center gap-2 text-sm font-semibold text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedTodo.repeatEnabled)}
+                    onChange={(e) =>
+                      setSelectedTodo({
+                        ...selectedTodo,
+                        repeatEnabled: e.target.checked,
+                        repeatPattern: selectedTodo.repeatPattern || "weekly",
+                      })
+                    }
+                    className="w-4 h-4 rounded border-zinc-600 text-indigo-600"
+                  />
+                  Repeat this task
+                </label>
+                <select
+                  value={selectedTodo.repeatPattern || "weekly"}
+                  onChange={(e) =>
+                    setSelectedTodo({
+                      ...selectedTodo,
+                      repeatPattern: e.target.value as RepeatPattern,
+                    })
+                  }
+                  disabled={!selectedTodo.repeatEnabled}
+                  className="w-full bg-zinc-800 border-2 border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-100 disabled:opacity-50"
+                >
+                  {REPEAT_PATTERNS.map((pattern) => (
+                    <option key={pattern.value} value={pattern.value}>
+                      Repeat {pattern.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Link to Event */}

@@ -48,6 +48,7 @@ export const AgentPanel = ({
   const setActiveConv = useChatStore((s) => s.setActiveConversation);
   const addConversation = useChatStore((s) => s.addConversation);
   const addMessage = useChatStore((s) => s.addMessage);
+  const addMessageWithId = useChatStore((s) => s.addMessageWithId);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
 
   const [customPrompt, setCustomPrompt] = useState("");
@@ -56,8 +57,8 @@ export const AgentPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<PanelMode>("agent");
   const [showHistory, setShowHistory] = useState(false);
-  const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
-  const [typingContent, setTypingContent] = useState("");
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [streamingContent, setStreamingContent] = useState("");
 
   const quickPrompts =
     mode === "agent"
@@ -98,36 +99,13 @@ export const AgentPanel = ({
     if (state.isOpen && !showHistory) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [activeConv?.messages, state.isOpen, showHistory, typingContent]);
+  }, [activeConv?.messages, state.isOpen, showHistory, streamingContent]);
 
-  // Reset typing state on conversation switch
+  // Reset streaming state on conversation switch
   useEffect(() => {
-    setTypingMessageId(null);
-    setTypingContent("");
+    setStreamingMsgId(null);
+    setStreamingContent("");
   }, [activeConvId]);
-
-  // Typing effect for assistant messages
-  useEffect(() => {
-    if (!typingMessageId) return;
-    const conv = conversations.find((c) => c.id === activeConvId);
-    const message = conv?.messages.find((m) => m.id === typingMessageId);
-    if (!message) return;
-
-    const fullText = message.content;
-    let index = 0;
-    const step = Math.max(1, Math.ceil(fullText.length / 300));
-
-    const interval = setInterval(() => {
-      index += step;
-      setTypingContent(fullText.slice(0, index));
-      if (index >= fullText.length) {
-        clearInterval(interval);
-        setTypingMessageId(null);
-        setTypingContent("");
-      }
-    }, 10);
-    return () => clearInterval(interval);
-  }, [typingMessageId, conversations, activeConvId]);
 
   // Handle Close on Escape
   useEffect(() => {
@@ -203,13 +181,13 @@ export const AgentPanel = ({
     // Limit page context size based on whether there's existing history.
     // Smaller models struggle when history + page content exceed the context window.
     const hasHistory = (activeConv?.messages.length ?? 0) > 0;
-    const pageContextLimit = hasHistory ? 4000 : 12000;
+    const pageContextLimit = hasHistory ? 6000 : 16000;
 
     let contextBlock = "";
     if (pageContent)
-      contextBlock += `\n\nCURRENT PAGE CONTENT:\n${pageContent.slice(0, pageContextLimit)}`;
+      contextBlock += `\n\n--- CURRENT PAGE CONTENT (read this carefully before responding) ---\n${pageContent.slice(0, pageContextLimit)}\n---`;
     if (state.selectedText)
-      contextBlock += `\n\nSELECTED TEXT:\n${state.selectedText}`;
+      contextBlock += `\n\nSELECTED TEXT (focus on this):\n${state.selectedText}`;
     if (pdfText) contextBlock += `\n\nPDF CONTEXT:\n${pdfText.slice(0, 5000)}`;
 
     setIsLoading(true);
@@ -262,36 +240,58 @@ export const AgentPanel = ({
         content: text + contextBlock,
       });
 
-      const response = await aiService.chat(
+      // Add a placeholder streaming message in the UI
+      const streamPlaceholderId = crypto.randomUUID();
+      addMessageWithId(activeConvId, {
+        id: streamPlaceholderId,
+        role: "assistant",
+        content: "",
+      });
+      setStreamingMsgId(streamPlaceholderId);
+      setStreamingContent("");
+
+      // --- Stream the response token by token ---
+      const response = await aiService.chatStream(
         messages,
         aiState.model,
         aiState.backend,
+        (_chunk, accumulated) => {
+          setStreamingContent(accumulated);
+        },
       );
+
+      // Done streaming — clear the live indicator
+      setStreamingMsgId(null);
+      setStreamingContent("");
 
       // --- Hallucination & garbled response guard ---
       const hallucinated = aiService.isHallucination(response);
       const garbled = aiService.isGarbled(response);
       if (hallucinated || garbled) {
-        console.warn("\u26a0\ufe0f Response rejected:", {
+        console.warn("⚠️ Response rejected:", {
           hallucinated,
           garbled,
           length: response.length,
           preview: response.slice(0, 200),
         });
-        addMessage(activeConvId, {
-          role: "assistant",
-          content:
-            "I had trouble generating that. Let me try again — please rephrase your request.",
-        });
+        // Update the placeholder with error message
+        const store = useChatStore.getState();
+        store.updateMessage(
+          activeConvId,
+          streamPlaceholderId,
+          "I had trouble generating that. Let me try again — please rephrase your request.",
+        );
         return;
       }
 
       if (mode === "ask") {
-        // Ask mode — never touch the page
-        addMessage(activeConvId, {
-          role: "assistant",
-          content: response || "No response",
-        });
+        // Ask mode — show the full streamed response in the chat bubble
+        const store = useChatStore.getState();
+        store.updateMessage(
+          activeConvId,
+          streamPlaceholderId,
+          response || "No response",
+        );
         return;
       }
 
@@ -309,9 +309,6 @@ export const AgentPanel = ({
         }
       }
 
-      // Agent mode fallback: if the AI returned text content without a tool
-      // block, and the user asked for content (not a question), auto-insert it
-      // into the page so it doesn't just sit in the chat.
       const isQuestion =
         /^(what|who|why|how|when|where|which|is |are |can |do |does |did |will |would |should |could |has |have |explain|tell me about)\b/i.test(
           text.trim(),
@@ -320,46 +317,24 @@ export const AgentPanel = ({
       let assistantMsg = "";
 
       if (commands.length === 0 && textResponse && !isQuestion) {
-        // The AI forgot to use a tool — send the text to the page anyway
         window.dispatchEvent(
           new CustomEvent("aiToolCommand", {
-            detail: {
-              action: "append_text",
-              params: { content: textResponse },
-            },
+            detail: { action: "append_text", params: { content: textResponse } },
           }),
         );
         assistantMsg = "✅ Content added to the page.";
       } else if (commands.length > 0) {
-        // Show a clean confirmation + short preview of what was written.
-        // Do NOT dump the textResponse into chat — that causes "split
-        // content" where the same info appears in both the page and the chat.
         const preview = aiService.summarizeToolContent(commands);
         assistantMsg = "✅ Changes applied to the page.";
-        if (preview) {
-          assistantMsg += "\n\n" + preview;
-        }
+        if (preview) assistantMsg += "\n\n" + preview;
       } else {
-        // No tool commands, no page edit — just a conversational answer
-        assistantMsg =
-          textResponse || "I'm here to help! Could you provide more details?";
+        assistantMsg = textResponse || "I'm here to help! Could you provide more details?";
       }
 
-      addMessage(activeConvId, {
-        role: "assistant",
-        content: assistantMsg,
-      });
+      // Update the placeholder bubble with the final confirmation message
+      const store = useChatStore.getState();
+      store.updateMessage(activeConvId, streamPlaceholderId, assistantMsg);
 
-      // Trigger typing effect for the new message
-      setTimeout(() => {
-        const updatedConv = useChatStore
-          .getState()
-          .conversations.find((c) => c.id === activeConvId);
-        const lastMsg = updatedConv?.messages[updatedConv.messages.length - 1];
-        if (lastMsg && lastMsg.role === "assistant") {
-          setTypingMessageId(lastMsg.id);
-        }
-      }, 50);
     } catch (e) {
       console.error(e);
       addMessage(activeConvId, {
@@ -367,6 +342,8 @@ export const AgentPanel = ({
         content: "Error: Failed to generate response.",
       });
     } finally {
+      setStreamingMsgId(null);
+      setStreamingContent("");
       setIsLoading(false);
     }
   };
@@ -385,9 +362,9 @@ export const AgentPanel = ({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ duration: 0.2 }}
+            transition={{ type: "spring", bounce: 0.35, duration: 0.5 }}
             ref={panelRef}
-            className="pointer-events-auto w-full max-w-[400px] overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/95 backdrop-blur-xl shadow-2xl flex flex-col h-[calc(100vh-6rem)] text-zinc-100 font-sans relative"
+            className="pointer-events-auto w-full max-w-[400px] overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/95 backdrop-blur-xl shadow-2xl shadow-blue-500/10 flex flex-col h-[calc(100vh-6rem)] text-zinc-100 font-sans relative"
           >
             {/* ===== Header ===== */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-zinc-900/60">
@@ -566,10 +543,10 @@ export const AgentPanel = ({
               )}
 
               {activeConv?.messages.map((msg) => {
-                const isTyping = typingMessageId === msg.id;
+                const isStreaming = streamingMsgId === msg.id;
                 const displayContent =
-                  msg.role === "assistant" && isTyping
-                    ? typingContent || " "
+                  msg.role === "assistant" && isStreaming
+                    ? streamingContent || "▋"
                     : msg.content;
 
                 return (
@@ -595,14 +572,14 @@ export const AgentPanel = ({
                       {msg.role === "assistant" ? (
                         <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2">
                           <ReactMarkdown>{displayContent}</ReactMarkdown>
-                          {isTyping && (
+                          {isStreaming && (
                             <span className="inline-block w-1.5 h-3 bg-blue-400 animate-pulse ml-0.5 rounded-full align-middle" />
                           )}
                         </div>
                       ) : (
                         <div className="whitespace-pre-wrap">{msg.content}</div>
                       )}
-                      {msg.role === "assistant" && !isTyping && (
+                      {msg.role === "assistant" && !isStreaming && (
                         <button
                           onClick={() =>
                             navigator.clipboard.writeText(msg.content)
