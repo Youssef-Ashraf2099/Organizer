@@ -4,10 +4,10 @@ pub mod ai;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
 use ai::{OllamaClient, OpenAIClient, RAGEngine, operations::AIAction, AiConfig, BackendType, ChatMessage};
-use std::sync::Mutex;
 use database::diagrams::{self, DiagramFolder, DiagramLibrary, DiagramRecord, SaveDiagramInput};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,10 +68,58 @@ fn maybe_migrate_legacy_db(app: &tauri::AppHandle) {
     }
 }
 
+fn collect_startup_markdown_files() -> Vec<String> {
+    std::env::args()
+        .skip(1)
+        .filter_map(|arg| {
+            let path = Path::new(&arg);
+            let extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase());
+
+            let is_markdown = matches!(extension.as_deref(), Some("md") | Some("markdown"));
+            if is_markdown && path.is_file() {
+                Some(path.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+pub struct StartupFileState {
+    pub markdown_files: Mutex<Vec<String>>,
+}
+
+#[tauri::command]
+fn get_launch_markdown_files(state: tauri::State<'_, StartupFileState>) -> Vec<String> {
+    let mut files = state.markdown_files.lock().unwrap();
+    std::mem::take(&mut *files)
+}
+
+#[tauri::command]
+fn read_markdown_file(file_path: String) -> Result<String, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() || !path.is_file() {
+        return Err("Markdown file does not exist".to_string());
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    if !matches!(extension.as_deref(), Some("md") | Some("markdown")) {
+        return Err("Only markdown files are supported".to_string());
+    }
+
+    fs::read_to_string(path).map_err(|e| format!("Failed to read markdown file: {e}"))
 }
 
 #[tauri::command]
@@ -465,6 +513,10 @@ pub fn run() {
         )
         .setup(|app| {
             maybe_migrate_legacy_db(app.handle());
+            let startup_markdown_files = collect_startup_markdown_files();
+            app.manage(StartupFileState {
+                markdown_files: Mutex::new(startup_markdown_files),
+            });
             // Initialize AI state with default configuration
             app.manage(AiState { config: Mutex::new(AiConfig::default()) });
             
@@ -472,6 +524,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            get_launch_markdown_files,
+            read_markdown_file,
             upload_file,
             upload_asset_bytes,
             get_asset_url,

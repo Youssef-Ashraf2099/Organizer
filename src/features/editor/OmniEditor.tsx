@@ -50,10 +50,98 @@ import {
 import { useTemplateStore } from "../../core/store/templateStore";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-// I will implement a custom debounce or just setTimeout.
-// Or I can install `use-debounce`. I'll do custom ref.
 
 const AUTOSAVE_DELAY = 1000;
+const WEB_PAGE_CONTENT_STORAGE_KEY = "omni-web-page-content";
+
+const PAGE_COVER_PRESETS = [
+  {
+    id: "aurora",
+    label: "Aurora",
+    style:
+      "linear-gradient(135deg, rgba(14, 165, 233, 0.95) 0%, rgba(59, 130, 246, 0.72) 45%, rgba(168, 85, 247, 0.86) 100%)",
+  },
+  {
+    id: "sunset",
+    label: "Sunset",
+    style:
+      "linear-gradient(135deg, rgba(251, 146, 60, 0.95) 0%, rgba(244, 63, 94, 0.88) 55%, rgba(168, 85, 247, 0.82) 100%)",
+  },
+  {
+    id: "forest",
+    label: "Forest",
+    style:
+      "linear-gradient(135deg, rgba(22, 163, 74, 0.95) 0%, rgba(14, 116, 144, 0.78) 55%, rgba(15, 23, 42, 0.92) 100%)",
+  },
+  {
+    id: "paper",
+    label: "Paper",
+    style:
+      "linear-gradient(135deg, rgba(226, 232, 240, 0.96) 0%, rgba(148, 163, 184, 0.88) 48%, rgba(71, 85, 105, 0.9) 100%)",
+  },
+  {
+    id: "midnight",
+    label: "Midnight",
+    style:
+      "linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.9) 55%, rgba(59, 130, 246, 0.78) 100%)",
+  },
+] as const;
+
+const resolveCoverStyle = (
+  cover?: string | null,
+): React.CSSProperties | null => {
+  if (!cover) return null;
+
+  const preset = PAGE_COVER_PRESETS.find((item) => item.id === cover);
+  if (preset) {
+    return { backgroundImage: preset.style };
+  }
+
+  if (/^(https?:|data:|blob:)/i.test(cover)) {
+    return {
+      backgroundImage: `url("${cover}")`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+    };
+  }
+
+  return { backgroundImage: cover };
+};
+
+const isTauriRuntime = () =>
+  typeof window !== "undefined" &&
+  typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+
+const loadWebPageContentMap = (): Record<string, PartialBlock[]> => {
+  try {
+    const raw = localStorage.getItem(WEB_PAGE_CONTENT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, PartialBlock[]>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveWebPageContentMap = (contentMap: Record<string, PartialBlock[]>) => {
+  localStorage.setItem(
+    WEB_PAGE_CONTENT_STORAGE_KEY,
+    JSON.stringify(contentMap),
+  );
+};
+
+const getWebPageContent = (pageId: string): PartialBlock[] => {
+  const contentMap = loadWebPageContentMap();
+  return Array.isArray(contentMap[pageId]) ? contentMap[pageId] : [];
+};
+
+const setWebPageContent = (pageId: string, content: PartialBlock[]) => {
+  const contentMap = loadWebPageContentMap();
+  contentMap[pageId] = content;
+  saveWebPageContentMap(contentMap);
+};
 
 interface OmniEditorProps {
   onUpload?: (file: File) => Promise<string>;
@@ -66,7 +154,6 @@ export const OmniEditor = ({
   onAISuggest,
   onSelectText,
 }: OmniEditorProps) => {
-  // Dormant hooks stub - logging to satisfy linter until implemented
   useEffect(() => {
     if (onUpload) console.debug("Upload handler registered");
     if (onAISuggest) console.debug("AI handler registered");
@@ -74,58 +161,37 @@ export const OmniEditor = ({
   }, [onUpload, onAISuggest, onSelectText]);
 
   const activePageId = usePageStore((s) => s.activePageId);
+  const currentPage = usePageStore((s) =>
+    activePageId ? s.pages[activePageId] : undefined,
+  );
   const updatePageTitle = usePageStore((s) => s.updatePageTitle);
+  const updatePageCover = usePageStore((s) => s.updatePageCover);
   const createTemplate = useTemplateStore((s) => s.createTemplate);
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateDescription, setTemplateDescription] = useState("");
   const [showImageUrlDialog, setShowImageUrlDialog] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
+  const [coverUrlInput, setCoverUrlInput] = useState("");
 
-  // Drag-to-select state
   const dragOverlayRef = useRef<HTMLDivElement>(null);
-
-  // Editor instance
+  const markdownImportInputRef = useRef<HTMLInputElement>(null);
   const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMagicRunning, setIsMagicRunning] = useState(false);
-
-  // Save Logic
   const saveTimeoutRef = useRef<number | null>(null);
 
   const saveToDb = useCallback(
     async (content: PartialBlock[], pageId: string) => {
       try {
+        if (!isTauriRuntime()) {
+          setWebPageContent(pageId, content);
+          return;
+        }
+
         const db = await Database.load(DB_URL);
         const json = JSON.stringify(content);
-        // Check if row exists, if not insert, else update?
-        // Actually 'blocks' table in schema:
-        // id is PRIMARY KEY. But do we mean blocks ROW id or the page's block container?
-        // "blocks: id TEXT PRIMARY KEY, page_id TEXT..."
-        // Usually BlockNote generates IDs for each block.
-        // But we are storing the ENTIRE document content in one row?
-        // Schema said: "content JSON NOT NULL".
-        // If we store an array of blocks in ONE column, then the table `blocks` might be misnamed or 1:1 with pages.
-        // "blocks" table: (id, page_id, content_json, sort_order).
-        // It seems the plan implies multiple rows per page OR one row per page?
-        // "Store block content as JSON".
-        // If we store the WHOLE doc as one JSON array, the table should be `page_content` or similar.
-        // If `blocks` table has `id` (primary key), it might be 1:1 with page if we key by page_id.
-        // Let's assume 1:1 relationship for Phase 1 simplicity: ONE row in `blocks` table per Page containing the ARRAY of blocks.
-        // OR `blocks` table has 1 row PER block. (This is harder to sync with BlockNote which gives a full array).
-        // Schema said: `content JSON`. If it's one row per block, content is that block's JSON.
-        // "content column ... stringified version of the BlockNote JSON structure" -> usually implies the Doc.
-        // Let's assume: `blocks` table has ONE row per `page_id` containing the entire document JSON.
-        // Primary Key `id` can be just `page_id` or a uuid.
-
-        // Let's use INSERT OR REPLACE.
-        // Schema: `blocks` (id, page_id, content, sort_order).
-        // We'll treat `page_id` as the unique constraint or manage it.
-        // Wait, schema has `id` ID. `page_id` is foreign key.
-        // I will delete existing content for the page and insert new? No, that breaks history.
-        // I'll ensure there is exactly one row in `blocks` for this `page_id` for now.
-
-        // Check if exists
         const existing = await db.select<any[]>(
           "SELECT id FROM blocks WHERE page_id = $1",
           [pageId],
@@ -141,7 +207,6 @@ export const OmniEditor = ({
             [crypto.randomUUID(), pageId, json, 0],
           );
         }
-        console.log("Saved page", pageId);
       } catch (e) {
         console.error(e);
       }
@@ -152,39 +217,39 @@ export const OmniEditor = ({
   const debouncedSave = useCallback(
     (content: PartialBlock[], pageId: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-        saveToDb(content, pageId);
-      }, AUTOSAVE_DELAY) as unknown as number;
+      saveTimeoutRef.current = setTimeout(
+        () => saveToDb(content, pageId),
+        AUTOSAVE_DELAY,
+      ) as unknown as number;
     },
     [saveToDb],
   );
 
-  // Initialize Editor
   useEffect(() => {
     if (!activePageId) return;
 
     const loadContent = async () => {
       setIsLoading(true);
-      setEditor(null); // Reset editor to force re-creation or update
-
+      setEditor(null);
       try {
-        const db = await Database.load(DB_URL);
-        const rows = await db.select<any[]>(
-          "SELECT content FROM blocks WHERE page_id = $1",
-          [activePageId],
-        );
-
         let loaded: PartialBlock[] = [];
-        if (rows.length > 0) {
-          try {
-            loaded = JSON.parse(rows[0].content);
-          } catch (e) {
-            console.error("Bad JSON", e);
+        if (isTauriRuntime()) {
+          const db = await Database.load(DB_URL);
+          const rows = await db.select<any[]>(
+            "SELECT content FROM blocks WHERE page_id = $1",
+            [activePageId],
+          );
+          if (rows.length > 0) {
+            try {
+              loaded = JSON.parse(rows[0].content);
+            } catch (e) {
+              console.error("Bad JSON", e);
+            }
           }
+        } else {
+          loaded = getWebPageContent(activePageId);
         }
 
-        // Create schema with custom blocks
-        // Create schema with custom blocks, extending defaults properly
         const defaultSchema = BlockNoteSchema.create();
         const schema = BlockNoteSchema.create({
           blockSpecs: {
@@ -201,12 +266,12 @@ export const OmniEditor = ({
           styleSpecs: defaultSchema.styleSpecs,
         }) as any;
 
-        // Create new editor instance with custom schema
-        const newEditor = BlockNoteEditor.create({
-          initialContent: loaded.length > 0 ? loaded : undefined,
-          schema,
-        });
-        setEditor(newEditor as any);
+        setEditor(
+          BlockNoteEditor.create({
+            initialContent: loaded.length > 0 ? loaded : undefined,
+            schema,
+          }) as any,
+        );
       } catch (e) {
         console.error(e);
       } finally {
@@ -217,167 +282,99 @@ export const OmniEditor = ({
     loadContent();
   }, [activePageId]);
 
-  // Handle Change
-  const handleChange = () => {
-    if (editor && activePageId) {
-      debouncedSave(editor.document, activePageId);
-    }
-  };
-
-  // Handle AI response insertion
-  useEffect(() => {
-    const handleInsertAI = (event: Event) => {
-      const customEvent = event as CustomEvent<{ response: string }>;
-      const { response } = customEvent.detail;
-
-      if (!editor || !response) return;
-
-      console.debug("insertAIResponse received", {
-        length: response.length,
-        hasEditor: !!editor,
-      });
-
-      // Parse markdown into BlockNote blocks
-      const blocks = markdownToBlocks(response);
-      if (blocks.length === 0) return;
-
-      // Prefer current cursor, otherwise append to the last block
-      const cursor = editor.getTextCursorPosition();
-      const fallbackBlock = editor.document[editor.document.length - 1];
-      const targetBlock = cursor?.block ?? fallbackBlock?.id ?? null;
-
-      if (targetBlock) {
-        editor.insertBlocks(blocks, targetBlock, "after");
-      } else {
-        // If no target block exists (empty doc), just add as first block
-        editor.insertBlocks(blocks, editor.document[0], "before");
-      }
-
-      // Move cursor safely — avoid TextSelection error
-      try {
-        const lastBlock = editor.document[editor.document.length - 1];
-        if (lastBlock) {
-          editor.setTextCursorPosition(lastBlock, "end");
-        }
-      } catch {
-        console.debug("Cursor positioning skipped (non-text block)");
-      }
-
-      // Animate all inserted blocks via the centralized animator
-      aiAnimator.handleCommand("insert_text", blocks.length);
-    };
-
-    window.addEventListener("insertAIResponse", handleInsertAI);
-    return () => window.removeEventListener("insertAIResponse", handleInsertAI);
-  }, [editor]);
-
-  // Handle Page Content Request from AgentPanel
   useEffect(() => {
     const handleGetPageContent = () => {
-      if (editor) {
-        try {
-          const blocks = editor.document;
-          let mdContent = "";
-
-          // Convert blocks back to a markdown-like representation
-          // so the AI has structural context (headings, lists, etc.)
-          const blockToMd = (block: any, depth = 0): string => {
-            const indent = "  ".repeat(depth);
-            let text = "";
-
-            // Extract inline text content
-            const inlineText = (() => {
-              if (!block.content) return "";
-              if (typeof block.content === "string") return block.content;
-              if (Array.isArray(block.content)) {
-                return block.content
-                  .map((c: any) => {
-                    let t = c.text || "";
-                    if (c.styles?.bold) t = `**${t}**`;
-                    if (c.styles?.italic) t = `*${t}*`;
-                    if (c.styles?.code) t = `\`${t}\``;
-                    return t;
-                  })
-                  .join("");
-              }
-              return "";
-            })();
-
-            // Format based on block type
-            switch (block.type) {
-              case "heading": {
-                const level = block.props?.level || 1;
-                text = indent + "#".repeat(level) + " " + inlineText + "\n";
-                break;
-              }
-              case "bulletListItem":
-              case "numberedListItem":
-                text = indent + "- " + inlineText + "\n";
-                break;
-              case "checkListItem":
-                text =
-                  indent +
-                  (block.props?.checked ? "- [x] " : "- [ ] ") +
-                  inlineText +
-                  "\n";
-                break;
-              case "image":
-                text =
-                  indent +
-                  `[Image: ${block.props?.caption || block.props?.url || "image"}]\n`;
-                break;
-              case "video":
-                text = indent + "[Video block]\n";
-                break;
-              case "audio":
-                text = indent + "[Audio block]\n";
-                break;
-              case "pdf":
-                text = indent + "[PDF block]\n";
-                break;
-              case "math":
-                text = indent + `$$${block.props?.latex || ""}$$\n`;
-                break;
-              case "mermaid":
-                text =
-                  indent +
-                  "```mermaid\n" +
-                  (block.props?.code || "") +
-                  "\n```\n";
-                break;
-              case "chart":
-                text = indent + "[Chart block]\n";
-                break;
-              case "kanban":
-                text = indent + "[Kanban board]\n";
-                break;
-              default:
-                // paragraph and unknown types
-                if (inlineText.trim()) {
-                  text = indent + inlineText + "\n";
-                }
+      if (!editor) return;
+      try {
+        const blocks = editor.document;
+        const blockToMd = (block: any, depth = 0): string => {
+          const indent = "  ".repeat(depth);
+          const inlineText = (() => {
+            if (!block.content) return "";
+            if (typeof block.content === "string") return block.content;
+            if (Array.isArray(block.content)) {
+              return block.content
+                .map((c: any) => {
+                  let t = c.text || "";
+                  if (c.styles?.bold) t = `**${t}**`;
+                  if (c.styles?.italic) t = `*${t}*`;
+                  if (c.styles?.code) t = `\`${t}\``;
+                  return t;
+                })
+                .join("");
             }
+            return "";
+          })();
 
-            // Recurse into children
-            if (block.children && block.children.length > 0) {
-              block.children.forEach((child: any) => {
-                text += blockToMd(child, depth + 1);
-              });
-            }
+          let text = "";
+          switch (block.type) {
+            case "heading":
+              text =
+                indent +
+                "#".repeat(block.props?.level || 1) +
+                " " +
+                inlineText +
+                "\n";
+              break;
+            case "bulletListItem":
+            case "numberedListItem":
+              text = indent + "- " + inlineText + "\n";
+              break;
+            case "checkListItem":
+              text =
+                indent +
+                (block.props?.checked ? "- [x] " : "- [ ] ") +
+                inlineText +
+                "\n";
+              break;
+            case "image":
+              text =
+                indent +
+                `[Image: ${block.props?.caption || block.props?.url || "image"}]\n`;
+              break;
+            case "video":
+              text = indent + "[Video block]\n";
+              break;
+            case "audio":
+              text = indent + "[Audio block]\n";
+              break;
+            case "pdf":
+              text = indent + "[PDF block]\n";
+              break;
+            case "math":
+              text = indent + `$$${block.props?.latex || ""}$$\n`;
+              break;
+            case "mermaid":
+              text =
+                indent + "```mermaid\n" + (block.props?.code || "") + "\n```\n";
+              break;
+            case "chart":
+              text = indent + "[Chart block]\n";
+              break;
+            case "kanban":
+              text = indent + "[Kanban board]\n";
+              break;
+            default:
+              if (inlineText.trim()) text = indent + inlineText + "\n";
+          }
 
-            return text;
-          };
+          if (block.children && block.children.length > 0) {
+            block.children.forEach((child: any) => {
+              text += blockToMd(child, depth + 1);
+            });
+          }
 
-          blocks.forEach((block: any) => {
-            const md = blockToMd(block);
-            if (md.trim()) mdContent += md + "\n";
-          });
+          return text;
+        };
 
-          // Store in window for AgentPanel to pick up
-          (window as any).__currentPageContent = mdContent.trim();
-        } catch (e) {
-          console.error("Failed to extract page content:", e);
-        }
+        let mdContent = "";
+        blocks.forEach((block: any) => {
+          const md = blockToMd(block);
+          if (md.trim()) mdContent += md + "\n";
+        });
+        (window as any).__currentPageContent = mdContent.trim();
+      } catch (e) {
+        console.error("Failed to extract page content:", e);
       }
     };
 
@@ -386,37 +383,23 @@ export const OmniEditor = ({
       window.removeEventListener("getPageContent", handleGetPageContent);
   }, [editor]);
 
-  // Handle AI Tool Commands
   useEffect(() => {
     const handleToolCommand = (event: Event) => {
-      // Wrap in simple timeout to avoid React flushSync/lifecycle conflicts
       setTimeout(() => {
         const customEvent = event as CustomEvent<{
           action: string;
           params?: any;
         }>;
         const { action, params } = customEvent.detail;
-
         if (!editor) return;
 
-        // Guard against editor view not ready (page transitions, unmounting)
         try {
-          // Accessing .document will throw if the editor view is destroyed
           if (!editor.document || editor.document.length === 0) return;
         } catch {
-          console.warn("⚠️ Editor not ready, skipping tool command");
           return;
         }
 
-        console.debug("🔧 Executing Tool:", action, params);
-
-        // Validate that the command has usable content
-        if (!action) {
-          console.warn("⚠️ Tool command has no action, skipping");
-          return;
-        }
-
-        // Coerce content to string — AI can return objects/arrays instead of text
+        if (!action) return;
         if (params?.content && typeof params.content !== "string") {
           try {
             params.content =
@@ -424,59 +407,49 @@ export const OmniEditor = ({
                 ? JSON.stringify(params.content, null, 2)
                 : String(params.content);
           } catch {
-            console.warn("⚠️ Could not coerce params.content to string");
             return;
           }
         }
 
+        const needsContent = [
+          "append_text",
+          "insert_text",
+          "replace_text",
+          "replace_all",
+        ].includes(action);
         if (
-          [
-            "append_text",
-            "insert_text",
-            "replace_text",
-            "replace_all",
-          ].includes(action) &&
+          needsContent &&
           (!params?.content ||
             (typeof params.content === "string" &&
               params.content.trim().length === 0))
         ) {
-          console.warn("⚠️ Tool command has empty content, skipping:", action);
           return;
         }
 
-        // Helper to insert a custom block type
         const insertBlock = (type: string, props: any = {}) => {
           try {
             const cursor = editor.getTextCursorPosition();
-            let targetBlock = cursor?.block;
-
-            if (!targetBlock) {
-              targetBlock = editor.document[editor.document.length - 1];
-            }
-
+            const targetBlock =
+              cursor?.block || editor.document[editor.document.length - 1];
             const currentBlockContent = (targetBlock?.content as any[]) || [];
             const isEmpty =
               currentBlockContent.length === 0 &&
               !targetBlock?.children?.length;
-
-            if (isEmpty && targetBlock) {
+            if (isEmpty && targetBlock)
               editor.updateBlock(targetBlock, { type: type as any, props });
-            } else {
+            else
               editor.insertBlocks(
                 [{ type: type as any, props }],
                 targetBlock,
                 "after",
               );
-            }
-          } catch (e) {
-            console.warn("insertBlock fallback:", e);
+          } catch {
             const last = editor.document[editor.document.length - 1];
             editor.insertBlocks([{ type: type as any, props }], last, "after");
           }
         };
 
         let insertedBlocks = 0;
-
         try {
           switch (action) {
             case "create_kanban":
@@ -491,15 +464,13 @@ export const OmniEditor = ({
               break;
             case "create_chart": {
               let chartData = params?.data;
-              if (typeof chartData === "object") {
+              if (typeof chartData === "object")
                 chartData = JSON.stringify(chartData);
-              }
-              if (!chartData) {
+              if (!chartData)
                 chartData = JSON.stringify({
                   labels: ["A", "B", "C"],
                   datasets: [{ label: "Data", data: [10, 20, 30] }],
                 });
-              }
               insertBlock("chart", {
                 type: params?.type || "bar",
                 data: chartData,
@@ -508,9 +479,7 @@ export const OmniEditor = ({
               break;
             }
             case "create_math":
-              insertBlock("math", {
-                latex: params?.content || "E=mc^2",
-              });
+              insertBlock("math", { latex: params?.content || "E=mc^2" });
               insertedBlocks = 1;
               break;
             case "insert_image":
@@ -523,126 +492,79 @@ export const OmniEditor = ({
               }
               break;
             case "insert_text":
-            case "append_text":
-              if (params?.content) {
-                const blocks = markdownToBlocks(params.content);
-                if (blocks.length > 0) {
-                  insertedBlocks = blocks.length;
-                  if (action === "append_text") {
-                    const lastBlock =
-                      editor.document[editor.document.length - 1];
-                    editor.insertBlocks(blocks, lastBlock, "after");
-                  } else {
-                    try {
-                      const cursor = editor.getTextCursorPosition();
-                      const targetBlock =
-                        cursor?.block ||
-                        editor.document[editor.document.length - 1];
-                      editor.insertBlocks(blocks, targetBlock, "after");
-                    } catch {
-                      const lastBlock =
-                        editor.document[editor.document.length - 1];
-                      editor.insertBlocks(blocks, lastBlock, "after");
-                    }
-                  }
-                }
+            case "append_text": {
+              const blocks = markdownToBlocks(params.content);
+              if (blocks.length > 0) {
+                insertedBlocks = blocks.length;
+                const lastBlock = editor.document[editor.document.length - 1];
+                editor.insertBlocks(blocks, lastBlock, "after");
               }
               break;
-            case "replace_text":
-              if (params?.content) {
-                const newBlocks = markdownToBlocks(params.content);
-                if (newBlocks.length > 0) {
-                  // If find/search param is provided, try to locate and replace that block
-                  if (params?.find || params?.search) {
-                    const needle = (params.find || params.search).toLowerCase();
-                    const docBlocks = editor.document;
-                    let found = false;
-                    for (const block of docBlocks) {
-                      const blockText = ((block.content as any[]) || [])
-                        .map((c: any) => c.text || "")
-                        .join("")
-                        .toLowerCase();
-                      if (blockText.includes(needle)) {
-                        // Replace this block and insert additional blocks after it
-                        editor.updateBlock(block, newBlocks[0]);
-                        if (newBlocks.length > 1) {
-                          editor.insertBlocks(
-                            newBlocks.slice(1),
-                            block,
-                            "after",
-                          );
-                        }
-                        found = true;
-                        break;
-                      }
-                    }
-                    if (!found) {
-                      console.warn(
-                        "⚠️ replace_text: Could not find text:",
-                        needle.slice(0, 80),
-                        "— appending at end instead",
-                      );
-                      // Fallback: insert at end
-                      const lastBlock =
-                        editor.document[editor.document.length - 1];
-                      editor.insertBlocks(newBlocks, lastBlock, "after");
-                    }
-                  } else {
-                    // No find param — replace at cursor (or end)
-                    try {
-                      const cursor = editor.getTextCursorPosition();
-                      const targetBlock =
-                        cursor?.block ||
-                        editor.document[editor.document.length - 1];
-                      editor.insertBlocks(newBlocks, targetBlock, "after");
-                    } catch {
-                      const lastBlock =
-                        editor.document[editor.document.length - 1];
-                      editor.insertBlocks(newBlocks, lastBlock, "after");
+            }
+            case "replace_text": {
+              const newBlocks = markdownToBlocks(params.content);
+              if (newBlocks.length > 0) {
+                if (params?.find || params?.search) {
+                  const needle = (params.find || params.search).toLowerCase();
+                  let found = false;
+                  for (const block of editor.document) {
+                    const blockText = ((block.content as any[]) || [])
+                      .map((c: any) => c.text || "")
+                      .join("")
+                      .toLowerCase();
+                    if (blockText.includes(needle)) {
+                      editor.updateBlock(block, newBlocks[0]);
+                      if (newBlocks.length > 1)
+                        editor.insertBlocks(newBlocks.slice(1), block, "after");
+                      found = true;
+                      break;
                     }
                   }
-                  insertedBlocks = newBlocks.length;
+                  if (!found)
+                    editor.insertBlocks(
+                      newBlocks,
+                      editor.document[editor.document.length - 1],
+                      "after",
+                    );
+                } else {
+                  editor.insertBlocks(
+                    newBlocks,
+                    editor.document[editor.document.length - 1],
+                    "after",
+                  );
                 }
+                insertedBlocks = newBlocks.length;
               }
               break;
-            case "replace_all":
-              if (params?.content) {
-                const newBlocks = markdownToBlocks(params.content);
-                if (newBlocks.length > 0) {
-                  // Remove all existing blocks
-                  const allBlocks = editor.document;
-                  const allIds = allBlocks.map((b) => b.id);
-                  editor.removeBlocks(allIds);
-                  // Insert new content — use the empty doc's first block as anchor
-                  const anchor = editor.document[0];
-                  if (anchor) {
-                    editor.updateBlock(anchor, newBlocks[0]);
-                    if (newBlocks.length > 1) {
-                      editor.insertBlocks(newBlocks.slice(1), anchor, "after");
-                    }
-                  } else {
-                    editor.insertBlocks(newBlocks, editor.document[0], "after");
-                  }
-                  insertedBlocks = newBlocks.length;
+            }
+            case "replace_all": {
+              const newBlocks = markdownToBlocks(params.content);
+              if (newBlocks.length > 0) {
+                editor.removeBlocks(editor.document.map((b) => b.id));
+                const anchor = editor.document[0];
+                if (anchor) {
+                  editor.updateBlock(anchor, newBlocks[0]);
+                  if (newBlocks.length > 1)
+                    editor.insertBlocks(newBlocks.slice(1), anchor, "after");
+                } else {
+                  editor.insertBlocks(newBlocks, editor.document[0], "after");
                 }
+                insertedBlocks = newBlocks.length;
               }
               break;
+            }
             case "update_page_title":
-              if (params?.title && activePageId) {
+              if (params?.title && activePageId)
                 updatePageTitle(activePageId, params.title);
-              }
               break;
             default:
-              console.warn("Unknown tool action:", action);
+              break;
           }
 
-          // Animate via the centralized animator
           if (insertedBlocks > 0) {
-            // Pre-hide newly inserted blocks immediately so they don't flash
-            // before the animator's slide-in kicks in
-            requestAnimationFrame(() => {
-              aiAnimator.handleCommand(action, insertedBlocks);
-            });
+            requestAnimationFrame(() =>
+              aiAnimator.handleCommand(action, insertedBlocks),
+            );
           }
         } catch (e) {
           console.error("Failed to execute tool:", e);
@@ -652,11 +574,14 @@ export const OmniEditor = ({
 
     window.addEventListener("aiToolCommand", handleToolCommand);
     return () => window.removeEventListener("aiToolCommand", handleToolCommand);
-  }, [editor, activePageId]);
+  }, [editor, activePageId, updatePageTitle]);
 
-  // Handle file upload
   const handleFileUpload = async (fileType: "image" | "video" | "pdf") => {
     if (!editor || !activePageId) return;
+    if (!isTauriRuntime()) {
+      alert("File uploads are available in the desktop app only.");
+      return;
+    }
 
     try {
       const assetInfo = await uploadFileFromPicker(activePageId);
@@ -669,23 +594,14 @@ export const OmniEditor = ({
         filePath: assetInfo.file_path,
         fileName: assetInfo.file_name,
       };
-
       if (blockType === "image") {
         blockProps.width = 100;
         blockProps.alt = assetInfo.file_name;
-      } else if (blockType === "video") {
-        blockProps.width = 100;
-      } else {
-        blockProps.height = 600;
-      }
+      } else if (blockType === "video") blockProps.width = 100;
+      else blockProps.height = 600;
 
       editor.insertBlocks(
-        [
-          {
-            type: blockType,
-            props: blockProps,
-          },
-        ],
+        [{ type: blockType, props: blockProps }],
         editor.getTextCursorPosition().block,
         "after",
       );
@@ -695,10 +611,8 @@ export const OmniEditor = ({
     }
   };
 
-  // Handle save as template
   const handleSaveAsTemplate = async () => {
     if (!editor || !templateName.trim()) return;
-
     try {
       await createTemplate(
         templateName,
@@ -713,6 +627,68 @@ export const OmniEditor = ({
     } catch (error) {
       console.error("Failed to save template:", error);
       alert("Failed to save template: " + error);
+    }
+  };
+
+  const handleChange = () => {
+    if (editor && activePageId) {
+      debouncedSave(editor.document, activePageId);
+    }
+  };
+
+  const applyParsedMarkdown = async (markdown: string) => {
+    if (!editor || !activePageId) return;
+
+    try {
+      const parsedBlocks = await editor.tryParseMarkdownToBlocks(markdown);
+      
+      const existingBlockIds = editor.document.map((block) => block.id);
+      if (existingBlockIds.length > 0) {
+        editor.replaceBlocks(existingBlockIds, parsedBlocks);
+      } else {
+        editor.insertBlocks(parsedBlocks, editor.document[0], "after");
+      }
+
+      debouncedSave(editor.document, activePageId);
+    } catch (error) {
+      console.error("Native parse failed, falling back to custom parser", error);
+      // Fallback
+      const parsedBlocks = markdownToBlocks(markdown);
+      const nextBlocks: PartialBlock[] =
+        parsedBlocks.length > 0
+          ? parsedBlocks
+          : [
+              {
+                type: "paragraph",
+                content: markdown.trim() || "",
+              } as any,
+            ];
+
+      const existingBlockIds = editor.document.map((block) => block.id);
+      editor.replaceBlocks(existingBlockIds, nextBlocks as any);
+      debouncedSave(editor.document, activePageId);
+    }
+  };
+
+  const handleImportMarkdownFile = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const markdown = await file.text();
+      applyParsedMarkdown(markdown);
+
+      const suggestedTitle = file.name.replace(/\.md$/i, "").trim();
+      if (suggestedTitle && activePageId) {
+        updatePageTitle(activePageId, suggestedTitle);
+      }
+    } catch (error) {
+      console.error("Failed to import markdown file:", error);
+      alert("Failed to open markdown file.");
+    } finally {
+      event.target.value = "";
     }
   };
 
@@ -813,6 +789,7 @@ export const OmniEditor = ({
   // Handle Drag and Drop from Tauri
   useEffect(() => {
     if (!editor || !activePageId) return;
+    if (!isTauriRuntime()) return;
 
     const unlisten = getCurrentWindow().listen<{ paths: string[] }>(
       "tauri://drag-drop",
@@ -1122,12 +1099,14 @@ export const OmniEditor = ({
     return <div className="p-10 text-zinc-400">Loading...</div>;
   }
 
+  const coverStyle = resolveCoverStyle(currentPage?.cover);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
-      className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950 px-8 py-6 relative"
+      className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950 px-4 py-6 relative"
       style={{ scrollBehavior: "smooth" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -1135,96 +1114,179 @@ export const OmniEditor = ({
       onMouseLeave={handleMouseUp}
       onPaste={handlePaste}
     >
-      {/* Drag selection overlay - disabled for better UX */}
-      {false && (
-        <div
-          ref={dragOverlayRef}
-          className="fixed pointer-events-none z-40 bg-blue-500/20 border-2 border-blue-500 rounded"
-          style={{
-            left: "0px",
-            top: "0px",
-            width: "0px",
-            height: "0px",
-          }}
-        />
-      )}
+      <div className="omni-page-shell space-y-5">
+        {false && (
+          <div
+            ref={dragOverlayRef}
+            className="fixed pointer-events-none z-40 bg-blue-500/20 border-2 border-blue-500 rounded"
+            style={{ left: "0px", top: "0px", width: "0px", height: "0px" }}
+          />
+        )}
 
-      <div className="flex justify-between items-start mb-6 no-print">
-        {/* Title Input */}
-        <input
-          className="text-4xl font-bold text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-300 border-none outline-none w-full bg-transparent"
-          placeholder="Untitled"
-          defaultValue={
-            usePageStore.getState().pages[activePageId]?.title || ""
-          }
-          onChange={(e) => updatePageTitle(activePageId, e.target.value)}
-          onPaste={(e) => e.stopPropagation()}
-        />
-        <div className="flex gap-2">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowSaveTemplateDialog(true)}
-            className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700 transition flex items-center gap-1 shadow-md"
-            title="Save as Template"
-          >
-            <FaSave size={14} />
-            Save as Template
-          </motion.button>
+        {coverStyle && (
+          <div className="omni-page-cover no-print">
+            <div className="omni-page-cover-surface" style={coverStyle} />
+          </div>
+        )}
 
-          {/* AI Organize Page Button */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={async () => {
-              if (!editor || !editor.document) return;
-              if (isMagicRunning) return;
+        <div className="flex flex-wrap justify-between items-start gap-4 no-print">
+          <input
+            className="min-w-0 flex-1 text-4xl font-bold text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-300 border-none outline-none bg-transparent px-0"
+            placeholder="Untitled"
+            defaultValue={currentPage?.title || ""}
+            onChange={(e) => updatePageTitle(activePageId, e.target.value)}
+            onPaste={(e) => e.stopPropagation()}
+          />
 
-              try {
-                setIsMagicRunning(true);
-                const isOllamaRunning = await aiService.healthCheck();
-                if (!isOllamaRunning) {
-                  alert(
-                    "AI is not running. Please start Ollama or check settings.",
-                  );
-                  return;
-                }
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={markdownImportInputRef}
+              type="file"
+              accept=".md,text/markdown,text/plain"
+              className="hidden"
+              onChange={handleImportMarkdownFile}
+            />
 
-                const markdown = await editor.blocksToMarkdownLossy(
-                  editor.document,
-                );
-                const aiState = await aiService.getState();
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => markdownImportInputRef.current?.click()}
+              className="px-3 py-2 text-zinc-100 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700 transition flex items-center gap-1 shadow-md"
+              title="Open Markdown file"
+            >
+              <FaFileCode size={14} />
+              Open .md
+            </motion.button>
 
-                const prompt = `You are an expert copy editor. Reorganize and enhance the following markdown document. Fix headings, improve bullet points, and make the flow professional. Output EXACTLY ONE JSON action of type "replace_all" with the new content, per your system rules.\n\nCURRENT PAGE CONTENT:\n${markdown}`;
+            <div className="relative">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowCoverPicker((value) => !value)}
+                className="px-3 py-2 text-zinc-100 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700 transition flex items-center gap-1 shadow-md"
+                title="Choose page cover"
+              >
+                <FaImage size={14} />
+                Cover
+              </motion.button>
 
-                const messages = [
-                  { role: "system", content: aiService.getToolDefinitions() },
-                  { role: "user", content: prompt },
-                ];
+              {showCoverPicker && (
+                <div className="absolute right-0 top-full mt-2 w-80 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-3 z-50">
+                  <div className="text-xs font-semibold tracking-[0.2em] uppercase text-zinc-500 dark:text-zinc-400 mb-3">
+                    Page Cover
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PAGE_COVER_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => {
+                          updatePageCover(activePageId, preset.id);
+                          setShowCoverPicker(false);
+                        }}
+                        className="rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 text-left hover:scale-[1.01] transition"
+                      >
+                        <div
+                          className="h-20 w-full"
+                          style={{ backgroundImage: preset.style }}
+                        />
+                        <div className="px-2 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200">
+                          {preset.label}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <input
+                      type="text"
+                      value={coverUrlInput}
+                      onChange={(e) => setCoverUrlInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                      placeholder="Paste cover image URL"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          const nextCover = coverUrlInput.trim();
+                          if (!nextCover) return;
+                          updatePageCover(activePageId, nextCover);
+                          setShowCoverPicker(false);
+                        }}
+                        className="flex-1 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
+                      >
+                        Use URL
+                      </button>
+                      <button
+                        onClick={() => {
+                          updatePageCover(activePageId, null);
+                          setShowCoverPicker(false);
+                          setCoverUrlInput("");
+                        }}
+                        className="px-3 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
-                let fullResponse = "";
-                await aiService.chatStream(
-                  messages,
-                  aiState.model,
-                  aiState.backend,
-                  (_chunk, accum) => {
-                    fullResponse = accum;
-                  },
-                );
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowSaveTemplateDialog(true)}
+              className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700 transition flex items-center gap-1 shadow-md"
+              title="Save as Template"
+            >
+              <FaSave size={14} />
+              Save as Template
+            </motion.button>
 
-                const parsed = aiService.extractJsonFromResponse(fullResponse);
-                if (parsed.commands && parsed.commands.length > 0) {
-                  for (const cmd of parsed.commands) {
-                    window.dispatchEvent(
-                      new CustomEvent("aiToolCommand", { detail: cmd }),
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={async () => {
+                if (!editor || !editor.document) return;
+                if (isMagicRunning) return;
+                try {
+                  setIsMagicRunning(true);
+                  const isOllamaRunning = await aiService.healthCheck();
+                  if (!isOllamaRunning) {
+                    alert(
+                      "AI is not running. Please start Ollama or check settings.",
                     );
+                    return;
                   }
-                } else {
-                  console.warn(
-                    "AI didn't return a JSON command, parsing raw text",
-                    fullResponse,
+
+                  const markdown = await editor.blocksToMarkdownLossy(
+                    editor.document,
                   );
-                  if (parsed.textResponse.trim()) {
+                  const aiState = await aiService.getState();
+                  const prompt = `You are an expert copy editor. Reorganize and enhance the following markdown document. Fix headings, improve bullet points, and make the flow professional. Output EXACTLY ONE JSON action of type "replace_all" with the new content, per your system rules.\n\nCURRENT PAGE CONTENT:\n${markdown}`;
+                  const messages = [
+                    { role: "system", content: aiService.getToolDefinitions() },
+                    { role: "user", content: prompt },
+                  ];
+
+                  let fullResponse = "";
+                  await aiService.chatStream(
+                    messages,
+                    aiState.model,
+                    aiState.backend,
+                    (_chunk, accum) => {
+                      fullResponse = accum;
+                    },
+                  );
+
+                  const parsed =
+                    aiService.extractJsonFromResponse(fullResponse);
+                  if (parsed.commands && parsed.commands.length > 0) {
+                    for (const cmd of parsed.commands) {
+                      window.dispatchEvent(
+                        new CustomEvent("aiToolCommand", { detail: cmd }),
+                      );
+                    }
+                  } else if (parsed.textResponse.trim()) {
                     window.dispatchEvent(
                       new CustomEvent("aiToolCommand", {
                         detail: {
@@ -1236,268 +1298,247 @@ export const OmniEditor = ({
                   } else {
                     alert("AI couldn't format the page. Try again.");
                   }
+                } catch (error) {
+                  console.error("❌ Error organizing page via AI:", error);
+                  alert("Failed to organize page. Check console for details.");
+                } finally {
+                  setIsMagicRunning(false);
                 }
-              } catch (error) {
-                console.error("❌ Error organizing page via AI:", error);
-                alert("Failed to organize page. Check console for details.");
-              } finally {
-                setIsMagicRunning(false);
-              }
-            }}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg ${
-              isMagicRunning
-                ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
-                : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:shadow-blue-500/10 border border-transparent hover:border-white/5"
-            }`}
-            title="Use AI to automatically format and organize this page"
-          >
-            {isMagicRunning ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-              >
-                <FaMagic size={14} className="text-blue-400" />
-              </motion.div>
-            ) : (
-              <FaMagic size={14} className="text-purple-400" />
-            )}
-            {isMagicRunning ? "Organizing..." : "Organize"}
-          </motion.button>
-
-          <div className="relative group z-50">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-black/20"
+              }}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg ${isMagicRunning ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:shadow-blue-500/10 border border-transparent hover:border-white/5"}`}
+              title="Use AI to automatically format and organize this page"
             >
-              Export
-              <FaChevronDown className="text-xs text-zinc-400 group-hover:rotate-180 transition-transform duration-300" />
+              {isMagicRunning ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                >
+                  <FaMagic size={14} className="text-blue-400" />
+                </motion.div>
+              ) : (
+                <FaMagic size={14} className="text-purple-400" />
+              )}
+              {isMagicRunning ? "Organizing..." : "Organize"}
             </motion.button>
 
-            <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right scale-95 group-hover:scale-100">
-              <button
-                onClick={exportToPdf}
-                className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+            <div className="relative group z-50">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-black/20"
               >
-                <FaPrint className="text-zinc-500" />
-                <span>Export to PDF</span>
-              </button>
+                Export
+                <FaChevronDown className="text-xs text-zinc-400 group-hover:rotate-180 transition-transform duration-300" />
+              </motion.button>
 
-              <button
-                onClick={async () => {
-                  const markdown = await editor?.blocksToMarkdownLossy(
-                    editor.document,
-                  );
-                  if (!markdown) return;
-                  const blob = new Blob([markdown], { type: "text/markdown" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${usePageStore.getState().pages[activePageId]?.title || "document"}.md`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
-              >
-                <FaFileCode className="text-blue-500" />
-                <span>Export Markdown</span>
-              </button>
+              <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right scale-95 group-hover:scale-100">
+                <button
+                  onClick={exportToPdf}
+                  className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+                >
+                  <FaPrint className="text-zinc-500" />
+                  <span>Export to PDF</span>
+                </button>
 
-              <button
-                onClick={async () => {
-                  // Quick HTML export
-                  const html = await editor?.blocksToHTMLLossy(editor.document);
-                  if (!html) return;
+                <button
+                  onClick={async () => {
+                    const markdown = await editor?.blocksToMarkdownLossy(
+                      editor.document,
+                    );
+                    if (!markdown) return;
+                    const blob = new Blob([markdown], {
+                      type: "text/markdown",
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${currentPage?.title || "document"}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+                >
+                  <FaFileCode className="text-blue-500" />
+                  <span>Export Markdown</span>
+                </button>
 
-                  // Add basic styling for the HTML export
-                  const fullHtml = `
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset="utf-8">
-                        <title>${usePageStore.getState().pages[activePageId]?.title || "Document"}</title>
-                        <style>
-                            body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1a1a1a; line-height: 1.6; }
-                            pre { background: #f4f4f5; padding: 15px; border-radius: 8px; overflow-x: auto; }
-                            img { max-width: 100%; height: auto; border-radius: 8px; }
-                            blockquote { border-left: 4px solid #e4e4e7; padding-left: 15px; margin-left: 0; color: #52525b; }
-                        </style>
-                    </head>
-                    <body>
-                        <h1>${usePageStore.getState().pages[activePageId]?.title || "Document"}</h1>
-                        ${html}
-                    </body>
-                    </html>
-                   `;
-
-                  const blob = new Blob([fullHtml], { type: "text/html" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${usePageStore.getState().pages[activePageId]?.title || "document"}.html`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
-              >
-                <FaHtml5 className="text-orange-500" />
-                <span>Export HTML</span>
-              </button>
+                <button
+                  onClick={async () => {
+                    const html = await editor?.blocksToHTMLLossy(
+                      editor.document,
+                    );
+                    if (!html) return;
+                    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${currentPage?.title || "Document"}</title><style>body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1a1a1a; line-height: 1.6; } pre { background: #f4f4f5; padding: 15px; border-radius: 8px; overflow-x: auto; } img { max-width: 100%; height: auto; border-radius: 8px; } blockquote { border-left: 4px solid #e4e4e7; padding-left: 15px; margin-left: 0; color: #52525b; }</style></head><body><h1>${currentPage?.title || "Document"}</h1>${html}</body></html>`;
+                    const blob = new Blob([fullHtml], { type: "text/html" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${currentPage?.title || "document"}.html`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-white/10 rounded-lg transition flex items-center gap-3"
+                >
+                  <FaHtml5 className="text-orange-500" />
+                  <span>Export HTML</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="min-h-[70vh] pb-[50vh]">
-        <BlockNoteView
-          editor={editor}
-          onChange={handleChange}
-          theme={darkTheme}
-          slashMenu={false}
-          spellCheck={true}
-        >
-          <SuggestionMenuController
-            triggerCharacter={"/"}
-            getItems={async (query) => {
-              const items = [
-                ...getDefaultReactSlashMenuItems(editor),
-                {
-                  title: "Math",
-                  onItemClick: () => {
-                    editor.insertBlocks(
-                      [
-                        {
-                          type: "math",
-                        },
-                      ],
-                      editor.getTextCursorPosition().block,
-                      "after",
-                    );
+        <div className="min-h-[70vh] pb-[50vh]">
+          <BlockNoteView
+            editor={editor}
+            onChange={handleChange}
+            theme={darkTheme}
+            slashMenu={false}
+            spellCheck={true}
+          >
+            <SuggestionMenuController
+              triggerCharacter={"/"}
+              getItems={async (query) => {
+                const items = [
+                  ...getDefaultReactSlashMenuItems(editor),
+                  {
+                    title: "Math",
+                    onItemClick: () => {
+                      editor.insertBlocks(
+                        [
+                          {
+                            type: "math",
+                          },
+                        ],
+                        editor.getTextCursorPosition().block,
+                        "after",
+                      );
+                    },
+                    aliases: ["latex", "equation", "formula"],
+                    group: "Other",
+                    icon: <FaCalculator />,
+                    subtext: "Insert a LaTeX math block",
                   },
-                  aliases: ["latex", "equation", "formula"],
-                  group: "Other",
-                  icon: <FaCalculator />,
-                  subtext: "Insert a LaTeX math block",
-                },
-                {
-                  title: "Mermaid Diagram",
-                  onItemClick: () => {
-                    editor.insertBlocks(
-                      [
-                        {
-                          type: "mermaid",
-                        },
-                      ],
-                      editor.getTextCursorPosition().block,
-                      "after",
-                    );
+                  {
+                    title: "Mermaid Diagram",
+                    onItemClick: () => {
+                      editor.insertBlocks(
+                        [
+                          {
+                            type: "mermaid",
+                          },
+                        ],
+                        editor.getTextCursorPosition().block,
+                        "after",
+                      );
+                    },
+                    aliases: ["flowchart", "diagram", "architecture", "erd"],
+                    group: "Visuals",
+                    icon: <FaProjectDiagram />,
+                    subtext:
+                      "Insert a Mermaid diagram (flowchart, sequence, ER)",
                   },
-                  aliases: ["flowchart", "diagram", "architecture", "erd"],
-                  group: "Visuals",
-                  icon: <FaProjectDiagram />,
-                  subtext: "Insert a Mermaid diagram (flowchart, sequence, ER)",
-                },
-                {
-                  title: "Chart",
-                  onItemClick: () => {
-                    editor.insertBlocks(
-                      [
-                        {
-                          type: "chart",
-                        },
-                      ],
-                      editor.getTextCursorPosition().block,
-                      "after",
-                    );
+                  {
+                    title: "Chart",
+                    onItemClick: () => {
+                      editor.insertBlocks(
+                        [
+                          {
+                            type: "chart",
+                          },
+                        ],
+                        editor.getTextCursorPosition().block,
+                        "after",
+                      );
+                    },
+                    aliases: ["bar", "line", "pie", "graph"],
+                    group: "Visuals",
+                    icon: <FaChartBar />,
+                    subtext: "Insert a chart (bar, line, pie)",
                   },
-                  aliases: ["bar", "line", "pie", "graph"],
-                  group: "Visuals",
-                  icon: <FaChartBar />,
-                  subtext: "Insert a chart (bar, line, pie)",
-                },
-                {
-                  title: "Kanban Board",
-                  onItemClick: () => {
-                    editor.insertBlocks(
-                      [
-                        {
-                          type: "kanban",
-                        },
-                      ],
-                      editor.getTextCursorPosition().block,
-                      "after",
-                    );
+                  {
+                    title: "Kanban Board",
+                    onItemClick: () => {
+                      editor.insertBlocks(
+                        [
+                          {
+                            type: "kanban",
+                          },
+                        ],
+                        editor.getTextCursorPosition().block,
+                        "after",
+                      );
+                    },
+                    aliases: ["task", "board", "jira", "trello"],
+                    group: "Productivity",
+                    icon: <FaTasks />,
+                    subtext: "Task management board",
                   },
-                  aliases: ["task", "board", "jira", "trello"],
-                  group: "Productivity",
-                  icon: <FaTasks />,
-                  subtext: "Task management board",
-                },
-                {
-                  title: "Upload Photo",
-                  onItemClick: () => handleFileUpload("image"),
-                  aliases: ["img", "picture", "photo"],
-                  group: "Images",
-                  icon: <FaImage />,
-                  subtext: "Upload and insert an image",
-                },
-                {
-                  title: "Image from URL",
-                  onItemClick: () => handleInsertImageUrl(),
-                  aliases: ["url", "link", "external"],
-                  group: "Images",
-                  icon: <FaLink />,
-                  subtext: "Insert an image from a web URL",
-                },
-                {
-                  title: "Upload Video",
-                  onItemClick: () => handleFileUpload("video"),
-                  aliases: ["movie", "clip"],
-                  group: "Videos",
-                  icon: <FaVideo />,
-                  subtext: "Upload and insert a video file",
-                },
-                {
-                  title: "Embed PDF",
-                  onItemClick: () => handleFileUpload("pdf"),
-                  aliases: ["document", "file"],
-                  group: "Documents",
-                  icon: <FaFilePdf />,
-                  subtext: "Upload and embed a PDF document",
-                },
-                {
-                  title: "Audio Recording",
-                  onItemClick: () => {
-                    editor.insertBlocks(
-                      [
-                        {
-                          type: "audio",
-                        },
-                      ],
-                      editor.getTextCursorPosition().block,
-                      "after",
-                    );
+                  {
+                    title: "Upload Photo",
+                    onItemClick: () => handleFileUpload("image"),
+                    aliases: ["img", "picture", "photo"],
+                    group: "Images",
+                    icon: <FaImage />,
+                    subtext: "Upload and insert an image",
                   },
-                  aliases: ["record", "voice", "sound", "microphone"],
-                  group: "Audio",
-                  icon: <FaMicrophone />,
-                  subtext: "Record or upload audio",
-                },
-              ];
+                  {
+                    title: "Image from URL",
+                    onItemClick: () => handleInsertImageUrl(),
+                    aliases: ["url", "link", "external"],
+                    group: "Images",
+                    icon: <FaLink />,
+                    subtext: "Insert an image from a web URL",
+                  },
+                  {
+                    title: "Upload Video",
+                    onItemClick: () => handleFileUpload("video"),
+                    aliases: ["movie", "clip"],
+                    group: "Videos",
+                    icon: <FaVideo />,
+                    subtext: "Upload and insert a video file",
+                  },
+                  {
+                    title: "Embed PDF",
+                    onItemClick: () => handleFileUpload("pdf"),
+                    aliases: ["document", "file"],
+                    group: "Documents",
+                    icon: <FaFilePdf />,
+                    subtext: "Upload and embed a PDF document",
+                  },
+                  {
+                    title: "Audio Recording",
+                    onItemClick: () => {
+                      editor.insertBlocks(
+                        [
+                          {
+                            type: "audio",
+                          },
+                        ],
+                        editor.getTextCursorPosition().block,
+                        "after",
+                      );
+                    },
+                    aliases: ["record", "voice", "sound", "microphone"],
+                    group: "Audio",
+                    icon: <FaMicrophone />,
+                    subtext: "Record or upload audio",
+                  },
+                ];
 
-              return items.filter((item: any) => {
-                const lowerQuery = query.toLowerCase();
-                return (
-                  item.title?.toLowerCase().includes(lowerQuery) ||
-                  (item.aliases &&
-                    item.aliases.some((alias: string) =>
-                      alias.toLowerCase().includes(lowerQuery),
-                    ))
-                );
-              });
-            }}
-          />
-        </BlockNoteView>
+                return items.filter((item: any) => {
+                  const lowerQuery = query.toLowerCase();
+                  return (
+                    item.title?.toLowerCase().includes(lowerQuery) ||
+                    (item.aliases &&
+                      item.aliases.some((alias: string) =>
+                        alias.toLowerCase().includes(lowerQuery),
+                      ))
+                  );
+                });
+              }}
+            />
+          </BlockNoteView>
+        </div>
       </div>
 
       {/* Save as Template Dialog */}

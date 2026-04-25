@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import Database from "@tauri-apps/plugin-sql";
 import { Sidebar } from "../../features/sidebar/Sidebar";
 import { OmniEditor } from "../../features/editor/OmniEditor";
 import { AgentPanel } from "../../features/ai/AgentPanel";
@@ -23,6 +25,7 @@ import { AIChat } from "../../features/ai/AIChat";
 import { WeeklyRoadmap } from "../../features/roadmap/WeeklyRoadmap";
 import { BudgetTracker } from "../../features/budget/BudgetTracker";
 import { DiagramStudio } from "../../features/diagrams/DiagramStudio";
+import { Settings } from "../../features/settings/Settings";
 import { FaMapSigns } from "@react-icons/all-files/fa/FaMapSigns";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -38,6 +41,8 @@ import {
   getTodayObjectiveStats,
   useObjectiveStore,
 } from "../../core/store/objectiveStore";
+import { markdownToBlocks } from "../../features/editor/markdownParser";
+import { DB_URL } from "../../core/db/sqlite";
 
 type RightPanelView =
   | "editor"
@@ -47,6 +52,7 @@ type RightPanelView =
   | "diagrams"
   | "objective"
   | "roadmap"
+  | "settings"
   | "aichat";
 
 type TodoColumn = "backlog" | "todo" | "inprogress" | "done";
@@ -88,6 +94,15 @@ const todayDateKey = () => {
   return `${y}-${m}-${d}`;
 };
 
+const isTauriRuntime = () =>
+  typeof window !== "undefined" &&
+  typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+
+const titleFromPath = (filePath: string) => {
+  const fileName = filePath.split(/[/\\]/).pop() || "Untitled";
+  return fileName.replace(/\.(md|markdown)$/i, "") || "Untitled";
+};
+
 export const AppLayout = () => {
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [rightPanelView, setRightPanelView] =
@@ -96,6 +111,9 @@ export const AppLayout = () => {
   const [todoCounts, setTodoCounts] = useState<TodoCounts>(emptyTodoCounts);
   const isDragging = useRef(false);
   const activePageId = usePageStore((s) => s.activePageId);
+  const addPage = usePageStore((s) => s.addPage);
+  const updatePageTitle = usePageStore((s) => s.updatePageTitle);
+  const setActivePage = usePageStore((s) => s.setActivePage);
   const {
     state,
     actions,
@@ -115,6 +133,7 @@ export const AppLayout = () => {
     );
     return getTodayObjectiveStats(todayObjectives);
   }, [objectives]);
+  const startupMarkdownHandledRef = useRef(false);
 
   // Start notification service on mount
   useEffect(() => {
@@ -190,6 +209,71 @@ export const AppLayout = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (startupMarkdownHandledRef.current) return;
+    startupMarkdownHandledRef.current = true;
+
+    const openStartupMarkdownFiles = async () => {
+      if (!isTauriRuntime()) return;
+
+      try {
+        const startupFiles = await invoke<string[]>("get_launch_markdown_files");
+        if (!Array.isArray(startupFiles) || startupFiles.length === 0) return;
+
+        const db = await Database.load(DB_URL);
+
+        for (const filePath of startupFiles) {
+          const markdown = await invoke<string>("read_markdown_file", {
+            filePath,
+          });
+
+          const pageId = await addPage(null, null);
+          if (!pageId) continue;
+
+          const title = titleFromPath(filePath);
+          await updatePageTitle(pageId, title);
+
+          const parsedBlocks = markdownToBlocks(markdown);
+          const nextBlocks =
+            parsedBlocks.length > 0
+              ? parsedBlocks
+              : [
+                  {
+                    type: "paragraph",
+                    content: markdown.trim() || "",
+                  },
+                ];
+
+          const contentJson = JSON.stringify(nextBlocks);
+          const existing = await db.select<any[]>(
+            "SELECT id FROM blocks WHERE page_id = $1",
+            [pageId],
+          );
+
+          if (existing.length > 0) {
+            await db.execute(
+              "UPDATE blocks SET content = $1 WHERE page_id = $2",
+              [contentJson, pageId],
+            );
+          } else {
+            await db.execute(
+              "INSERT INTO blocks (id, page_id, content, sort_order) VALUES ($1, $2, $3, $4)",
+              [crypto.randomUUID(), pageId, contentJson, 0],
+            );
+          }
+
+          setActivePage(pageId);
+        }
+
+        setRightPanelView("editor");
+      } catch (error) {
+        console.error("Failed to open startup markdown files:", error);
+      }
+    };
+
+    openStartupMarkdownFiles();
+  }, [addPage, setActivePage, updatePageTitle]);
+
   const startResizing = useCallback(() => {
     isDragging.current = true;
     document.body.style.cursor = "col-resize";
@@ -222,37 +306,51 @@ export const AppLayout = () => {
     };
   }, [resize, stopResizing]);
 
+  const showSidebar = rightPanelView === "editor" || rightPanelView === "diagrams";
+
   return (
     <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-hidden">
-      {/* Left Sidebar - Always Pages */}
-      <aside
-        style={{ width: sidebarWidth }}
-        className="flex-shrink-0 flex flex-col h-full overflow-hidden no-print"
-      >
-        <Sidebar view={rightPanelView} />
-      </aside>
+      <AnimatePresence initial={false}>
+        {showSidebar && (
+          <>
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: sidebarWidth, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: "easeInOut" }}
+              className="flex-shrink-0 flex flex-col h-full overflow-hidden no-print"
+            >
+              <Sidebar view={rightPanelView} />
+            </motion.aside>
 
-      {/* Resizer Handle */}
-      <div
-        onMouseDown={startResizing}
-        className={cn(
-          "w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50 no-print",
-          isDragging.current ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-800",
+            {/* Resizer Handle */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onMouseDown={startResizing}
+              className={cn(
+                "w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50 no-print",
+                isDragging.current ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-800",
+              )}
+            />
+          </>
         )}
-      />
+      </AnimatePresence>
 
       {/* Right Panel with Tabs */}
       <div className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative">
         {/* Tab Buttons at Top */}
-        <div className="flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 no-print">
-          <div className="flex flex-1">
+        <div className="relative z-50 flex items-center justify-between border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
+          <div className="flex flex-1 gap-1 px-2 py-2 overflow-x-auto min-w-0 custom-scrollbar">
             <button
               onClick={() => setRightPanelView("editor")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "editor"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaBookOpen size={14} />
@@ -261,10 +359,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("todo")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "todo"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaListUl size={14} />
@@ -304,10 +402,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("calendar")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2 relative",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl relative whitespace-nowrap",
                 rightPanelView === "calendar"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaCalendarAlt size={14} />
@@ -322,10 +420,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("budget")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "budget"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaWallet size={14} />
@@ -334,10 +432,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("diagrams")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "diagrams"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaProjectDiagram size={14} />
@@ -346,10 +444,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("roadmap")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "roadmap"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaMapSigns size={14} />
@@ -358,10 +456,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("objective")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "objective"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaCrosshairs size={14} />
@@ -375,10 +473,10 @@ export const AppLayout = () => {
             <button
               onClick={() => setRightPanelView("aichat")}
               className={cn(
-                "px-6 py-3 text-sm font-medium transition flex items-center gap-2",
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
                 rightPanelView === "aichat"
-                  ? "bg-zinc-50 dark:bg-zinc-950 text-blue-600 border-b-2 border-blue-600"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-900",
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
               <FaComments size={14} />
@@ -402,12 +500,25 @@ export const AppLayout = () => {
             </div>
           )}
 
+            <button
+              onClick={() => setRightPanelView("settings")}
+              className={cn(
+                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
+                rightPanelView === "settings"
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
+              )}
+            >
+              <FaProjectDiagram size={14} className="rotate-90" />
+              Settings
+            </button>
+          </div>
+
           {/* Notification Bell */}
           <div className="relative px-3">
             <NotificationBell />
             <NotificationInbox />
           </div>
-        </div>
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto relative">
@@ -429,6 +540,7 @@ export const AppLayout = () => {
               {rightPanelView === "diagrams" && <DiagramStudio />}
               {rightPanelView === "roadmap" && <WeeklyRoadmap />}
               {rightPanelView === "objective" && <TodayObjective />}
+              {rightPanelView === "settings" && <Settings />}
               {rightPanelView === "aichat" && <AIChat />}
             </motion.div>
           </AnimatePresence>
@@ -490,3 +602,4 @@ export const AppLayout = () => {
     </div>
   );
 };
+

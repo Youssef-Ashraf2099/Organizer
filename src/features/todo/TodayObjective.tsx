@@ -9,6 +9,7 @@ import { FaFire } from "@react-icons/all-files/fa/FaFire";
 import { FaCheckCircle } from "@react-icons/all-files/fa/FaCheckCircle";
 import { FaStar } from "@react-icons/all-files/fa/FaStar";
 import { FaHistory } from "@react-icons/all-files/fa/FaHistory";
+import { FaPlus } from "@react-icons/all-files/fa/FaPlus";
 import {
   getTodayObjectiveStats,
   ObjectiveRepeatPattern,
@@ -425,11 +426,11 @@ export const TodayObjective = () => {
       {/* Header with Progress */}
       <div className="p-6 border-b border-zinc-800/50 backdrop-blur-sm space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg shadow-cyan-500/20">
-              <FaBullseye className="text-white" size={20} />
+          <h2 className="text-xl font-bold flex items-center gap-3">
+            <div className="p-2 bg-blue-500/10 rounded-xl">
+              <FaBullseye className="text-blue-500" size={18} />
             </div>
-            <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            <span className="text-zinc-100">
               Today's Objectives
             </span>
           </h2>
@@ -479,12 +480,8 @@ export const TodayObjective = () => {
                 width: `${stats.completionPercent}%`,
                 background:
                   stats.completionPercent === 100
-                    ? "linear-gradient(90deg, #10b981, #059669)"
-                    : "linear-gradient(90deg, #06b6d4, #3b82f6)",
-                boxShadow:
-                  stats.completionPercent > 0
-                    ? "0 0 20px rgba(6, 182, 212, 0.5)"
-                    : "none",
+                    ? "#10b981"
+                    : "#3b82f6",
               }}
             >
               {stats.completionPercent > 10 && (
@@ -495,43 +492,43 @@ export const TodayObjective = () => {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 shadow-lg hover:shadow-cyan-500/10 transition-all hover:border-cyan-500/30">
-            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-1">
-              <FaCheckCircle className="text-cyan-400" />
+        <div className="grid grid-cols-4 gap-4">
+          <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4 transition-all">
+            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-2">
+              <FaCheckCircle className="text-blue-400" />
               Objectives
             </div>
-            <div className="font-bold text-lg text-zinc-100">
+            <div className="font-bold text-xl text-zinc-100">
               {stats.completed}
-              <span className="text-zinc-600">/{stats.total}</span>
+              <span className="text-zinc-600 ml-1">/{stats.total}</span>
             </div>
           </div>
-          <div className="bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 shadow-lg hover:shadow-rose-500/10 transition-all hover:border-rose-500/30">
-            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-1">
+          <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4 transition-all">
+            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-2">
               <FaFire className="text-rose-400" />
               Critical
             </div>
-            <div className="font-bold text-lg text-rose-400">
+            <div className="font-bold text-xl text-rose-400">
               {stats.criticalCompleted}
-              <span className="text-zinc-600">/{stats.critical}</span>
+              <span className="text-zinc-600 ml-1">/{stats.critical}</span>
             </div>
           </div>
-          <div className="bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 shadow-lg hover:shadow-blue-500/10 transition-all hover:border-blue-500/30">
-            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-1">
+          <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4 transition-all">
+            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-2">
               <FaStar className="text-blue-400" />
               Checklist
             </div>
-            <div className="font-bold text-lg text-zinc-100">
+            <div className="font-bold text-xl text-zinc-100">
               {stats.checklistDone}
-              <span className="text-zinc-600">/{stats.checklistTotal}</span>
+              <span className="text-zinc-600 ml-1">/{stats.checklistTotal}</span>
             </div>
           </div>
-          <div className="bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 shadow-lg hover:shadow-emerald-500/10 transition-all hover:border-emerald-500/30">
-            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-1">
+          <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4 transition-all">
+            <div className="flex items-center gap-2 text-zinc-400 text-xs mb-2">
               <FaClock className="text-emerald-400" />
               Progress
             </div>
-            <div className="font-bold text-lg bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text text-transparent">
+            <div className="font-bold text-xl text-emerald-400">
               {stats.completionPercent}%
             </div>
           </div>
@@ -547,31 +544,19 @@ export const TodayObjective = () => {
               <div className="flex justify-end">
                 <button
                   onClick={() => setShowForm(true)}
-                  className="group relative inline-flex overflow-hidden rounded-xl border border-cyan-400/30 bg-gradient-to-r from-cyan-700 to-blue-700 px-4 py-2 text-white shadow-md shadow-cyan-500/20 transition-all hover:-translate-y-0.5 hover:from-cyan-600 hover:to-blue-600 hover:shadow-cyan-500/30 active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-                  <span className="relative flex items-center justify-center gap-2">
-                    <span className="grid h-6 w-6 place-items-center rounded-lg border border-cyan-100/35 bg-cyan-300/15 text-cyan-50 shadow-[0_0_14px_rgba(34,211,238,0.35)] transition-all duration-200 group-hover:scale-110 group-hover:rotate-90">
-                      <span className="-mt-[1px] text-base font-bold leading-none">
-                        +
-                      </span>
-                    </span>
-                    <span className="text-sm font-semibold tracking-wide">
-                      Add New Task
-                    </span>
-                    <span className="text-xs text-cyan-100/80 transition-transform duration-200 group-hover:translate-x-0.5">
-                      {"->"}
-                    </span>
-                  </span>
+                  <FaPlus size={14} />
+                  Add New Task
                 </button>
               </div>
             )}
 
             {/* Create Objective Form (Hidden by default) */}
             {showForm && !selectedObjectiveId && (
-              <div className="bg-gradient-to-br from-zinc-900/80 to-zinc-900/40 border-2 border-cyan-500/30 rounded-2xl p-6 space-y-4 shadow-xl shadow-cyan-500/10 backdrop-blur-sm">
-                <div className="text-sm font-bold text-cyan-400 flex items-center gap-2">
-                  <span className="inline-block w-1 h-5 bg-gradient-to-b from-cyan-400 to-blue-500 rounded-full"></span>
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 space-y-4">
+                <div className="text-sm font-bold text-zinc-100 flex items-center gap-2 mb-4">
+                  <FaBullseye className="text-blue-500" />
                   Create New Objective
                 </div>
 
@@ -715,16 +700,16 @@ export const TodayObjective = () => {
                         setNewRepeatPattern("weekly");
                         setNewCategory("work");
                       }}
-                      className="px-6 py-3 text-sm font-bold rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 transition-all"
+                      className="px-6 py-2.5 text-sm font-medium rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors"
                     >
-                      ✕ Cancel
+                      Cancel
                     </button>
                     <button
                       onClick={createObjective}
                       disabled={!newObjectiveTitle.trim()}
-                      className="px-6 py-3 text-sm font-bold rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all hover:scale-105 active:scale-95"
+                      className="px-6 py-2.5 text-sm font-medium rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      ✨ Add Objective
+                      Add Objective
                     </button>
                   </div>
                 </div>
@@ -778,11 +763,11 @@ export const TodayObjective = () => {
                             setSelectedObjectiveId(objective.id);
                           }
                         }}
-                        className={`w-full text-left rounded-2xl p-4 transition-all border cursor-pointer ${
+                        className={`w-full text-left rounded-xl p-5 transition-all border cursor-pointer ${
                           objective.isCritical
-                            ? "bg-gradient-to-r from-rose-950/35 to-zinc-900/80 border-rose-500/35 hover:border-rose-400/50"
-                            : "bg-gradient-to-r from-zinc-900/85 to-zinc-900/55 border-zinc-800/70 hover:border-zinc-700"
-                        } hover:shadow-xl shadow-black/20 group`}
+                            ? "bg-rose-950/10 border-rose-500/20 hover:border-rose-500/40"
+                            : "bg-zinc-900/40 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/40"
+                        } group`}
                       >
                         <div className="flex items-start gap-3">
                           <div className="pt-0.5">
@@ -793,13 +778,13 @@ export const TodayObjective = () => {
                                 e.stopPropagation();
                                 quickToggleObjectiveChecklist(objective.id);
                               }}
-                              className={`h-7 w-7 rounded-lg border-2 grid place-items-center transition-all ${
+                              className={`h-6 w-6 rounded-md border-[1.5px] grid place-items-center transition-all mt-1 ${
                                 isDone
-                                  ? "bg-cyan-500/20 border-cyan-400 text-cyan-300"
-                                  : "bg-zinc-950/60 border-zinc-700 text-transparent group-hover:border-zinc-500"
+                                  ? "bg-blue-500 border-blue-500 text-white"
+                                  : "border-zinc-600 text-transparent hover:border-blue-500"
                               }`}
                             >
-                              <FaCheckCircle size={13} />
+                              <FaCheckCircle size={12} />
                             </button>
                           </div>
 
@@ -814,15 +799,15 @@ export const TodayObjective = () => {
                               </h4>
 
                               {objective.isCritical && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 text-xs font-semibold border border-rose-500/35">
-                                  <FaFire size={8} />
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 text-[11px] font-semibold border border-rose-500/20">
+                                  <FaFire size={10} />
                                   CRITICAL
                                 </span>
                               )}
 
                               {objective.repeatEnabled &&
                                 objective.repeatPattern && (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-cyan-500/12 text-cyan-300 text-xs font-semibold border border-cyan-500/30">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[11px] font-semibold border border-blue-500/20">
                                     🔄 {objective.repeatPattern}
                                   </span>
                                 )}

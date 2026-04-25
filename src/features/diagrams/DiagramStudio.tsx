@@ -5,7 +5,6 @@ import {
   useState,
   type ChangeEvent,
   type PointerEvent,
-  type WheelEvent,
 } from "react";
 import mermaid from "mermaid";
 import html2canvas from "html2canvas";
@@ -303,6 +302,7 @@ export const DiagramStudio = () => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showTemplatesDropdown, setShowTemplatesDropdown] = useState(false);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
@@ -407,6 +407,7 @@ export const DiagramStudio = () => {
     setActiveTemplateKey(template.key);
     setDraftName(template.label);
     setDraftCode(template.code);
+    setShowTemplatesDropdown(false);
     setTimeout(() => {
       renderMermaid(template.code);
     }, 0);
@@ -549,11 +550,24 @@ export const DiagramStudio = () => {
     await container.requestFullscreen();
   };
 
-  const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const delta = event.deltaY < 0 ? 0.18 : -0.18;
-    setScale((current) => clamp(current + delta, MIN_ZOOM, MAX_ZOOM));
-  };
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+
+    const onPreviewWheel = (event: globalThis.WheelEvent) => {
+      // Keep wheel interactions inside canvas dedicated to zoom for better UX.
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.deltaY < 0 ? 0.18 : -0.18;
+      setScale((current) => clamp(current + delta, MIN_ZOOM, MAX_ZOOM));
+    };
+
+    preview.addEventListener("wheel", onPreviewWheel, { passive: false });
+
+    return () => {
+      preview.removeEventListener("wheel", onPreviewWheel);
+    };
+  }, []);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -629,36 +643,36 @@ export const DiagramStudio = () => {
 
             <button
               onClick={() => renderMermaid(draftCode)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium"
+              className="inline-flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+              title="Render"
             >
-              <FaRedo size={12} />
-              Render
+              <FaRedo size={14} />
             </button>
 
             <button
               onClick={saveCurrentDiagram}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 text-sm font-medium"
+              className="inline-flex items-center justify-center p-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+              title="Save"
             >
-              <FaSave size={12} />
-              Save
+              <FaSave size={14} />
             </button>
 
             <button
               onClick={exportSvg}
               disabled={!activeSvgMarkup}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
+              className="inline-flex items-center justify-center p-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+              title="Export SVG"
             >
-              <FaDownload size={12} />
-              Export SVG
+              <FaDownload size={14} />
             </button>
 
             <button
               onClick={exportPdf}
               disabled={!activeSvgMarkup}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
+              className="inline-flex items-center justify-center p-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+              title="Export PDF"
             >
-              <FaFilePdf size={12} />
-              Export PDF
+              <FaFilePdf size={14} />
             </button>
           </div>
         </div>
@@ -719,26 +733,39 @@ export const DiagramStudio = () => {
                 Imported SVG diagrams can be viewed, zoomed, and exported.
               </p>
 
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-zinc-500 uppercase">
-                  Quick Templates
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {TEMPLATES.map((template) => (
-                    <button
-                      key={template.key}
-                      onClick={() => applyTemplate(template)}
-                      className={`w-full text-left rounded-xl border px-3 py-2 transition ${activeTemplate.key === template.key ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300" : "bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500"}`}
-                    >
-                      <div className="text-sm font-medium">
-                        {template.label}
-                      </div>
-                      <div className="text-xs text-zinc-400">
-                        {template.description}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+              <div className="relative">
+                <button
+                  onClick={() => setShowTemplatesDropdown(!showTemplatesDropdown)}
+                  className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm font-medium hover:border-zinc-500 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <FaCode className="text-cyan-400" /> Quick Templates
+                  </span>
+                  <span className="text-zinc-500 text-xs">
+                    {showTemplatesDropdown ? "▲" : "▼"}
+                  </span>
+                </button>
+                
+                {showTemplatesDropdown && (
+                  <div className="absolute z-10 w-full mt-2 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl overflow-hidden">
+                    <div className="max-h-[300px] overflow-y-auto">
+                      {TEMPLATES.map((template) => (
+                        <button
+                          key={template.key}
+                          onClick={() => applyTemplate(template)}
+                          className={`w-full text-left px-4 py-3 transition hover:bg-zinc-800 ${activeTemplate.key === template.key ? "bg-zinc-800 border-l-2 border-cyan-400" : "border-l-2 border-transparent"}`}
+                        >
+                          <div className="text-sm font-medium text-zinc-200">
+                            {template.label}
+                          </div>
+                          <div className="text-xs text-zinc-400 mt-0.5">
+                            {template.description}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -754,40 +781,38 @@ export const DiagramStudio = () => {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-cyan-300">
-                    {(scale * 100).toFixed(0)}%
-                  </span>
+                <div className="flex items-center bg-zinc-900 border border-zinc-700 rounded-lg overflow-hidden shadow-sm">
                   <button
                     onClick={() => zoom(-1)}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm"
+                    className="p-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-100"
+                    title="Zoom Out"
                   >
-                    <FaSearchMinus size={12} />
-                    Zoom Out
+                    <FaSearchMinus size={14} />
                   </button>
                   <button
                     onClick={resetView}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm"
+                    className="px-3 py-2.5 hover:bg-zinc-800 transition-colors text-xs font-semibold text-cyan-300 border-l border-r border-zinc-700"
+                    title="Reset View"
                   >
-                    Reset
+                    {(scale * 100).toFixed(0)}%
                   </button>
                   <button
                     onClick={() => zoom(1)}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm"
+                    className="p-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-100 border-r border-zinc-700"
+                    title="Zoom In"
                   >
-                    <FaSearchPlus size={12} />
-                    Zoom In
+                    <FaSearchPlus size={14} />
                   </button>
                   <button
                     onClick={toggleFullscreen}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm"
+                    className="p-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-100"
+                    title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                   >
                     {isFullscreen ? (
-                      <FaCompress size={12} />
+                      <FaCompress size={14} />
                     ) : (
-                      <FaExpand size={12} />
+                      <FaExpand size={14} />
                     )}
-                    {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                   </button>
                 </div>
               </div>
@@ -795,7 +820,6 @@ export const DiagramStudio = () => {
               <div
                 ref={previewRef}
                 className={`relative overflow-hidden rounded-2xl border min-h-[640px] ${THEME_PRESETS[draftThemePreset].containerClass}`}
-                onWheel={onWheel}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={stopPanning}

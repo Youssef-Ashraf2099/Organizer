@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { FaChevronLeft } from "@react-icons/all-files/fa/FaChevronLeft";
 import { FaChevronRight } from "@react-icons/all-files/fa/FaChevronRight";
 import { FaPlus } from "@react-icons/all-files/fa/FaPlus";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import { FaTimes } from "@react-icons/all-files/fa/FaTimes";
+import { FaCalendarAlt } from "@react-icons/all-files/fa/FaCalendarAlt";
 import { notificationService } from "../../core/services/notificationService";
 
 type RepeatPattern = "daily" | "weekly" | "monthly";
@@ -56,14 +57,43 @@ const occursOnDate = (event: CalendarEvent, dateStr: string) => {
 };
 
 const EVENT_TAGS = [
-  { name: "quiz", color: "#3b82f6", label: "📝 Quiz" },
-  { name: "university", color: "#8b5cf6", label: "🎓 University" },
-  { name: "final", color: "#ef4444", label: "📚 Final" },
-  { name: "meeting", color: "#06b6d4", label: "👥 Meeting" },
-  { name: "deadline", color: "#f59e0b", label: "⏰ Deadline" },
-  { name: "birthday", color: "#ec4899", label: "🎂 Birthday" },
-  { name: "hangout", color: "#10b981", label: "🎉 Hangout" },
-  { name: "other", color: "#64748b", label: "📌 Other" },
+  // Academic
+  { name: "quiz",         color: "#3b82f6", label: "📝 Quiz",           group: "Academic" },
+  { name: "exam",         color: "#ef4444", label: "📚 Exam",            group: "Academic" },
+  { name: "final",        color: "#dc2626", label: "🎓 Final Exam",      group: "Academic" },
+  { name: "study",        color: "#6366f1", label: "📖 Study Session",   group: "Academic" },
+  { name: "lecture",      color: "#8b5cf6", label: "🏫 Lecture",         group: "Academic" },
+  { name: "university",   color: "#7c3aed", label: "🎓 University",      group: "Academic" },
+  { name: "workshop",     color: "#a78bfa", label: "🔧 Workshop",        group: "Academic" },
+  // Work
+  { name: "meeting",      color: "#06b6d4", label: "👥 Meeting",         group: "Work" },
+  { name: "deadline",     color: "#f59e0b", label: "⏰ Deadline",        group: "Work" },
+  { name: "coding",       color: "#14b8a6", label: "💻 Coding",          group: "Work" },
+  { name: "project",      color: "#0ea5e9", label: "📋 Project",         group: "Work" },
+  { name: "conference",   color: "#0284c7", label: "🎤 Conference",      group: "Work" },
+  { name: "interview",    color: "#38bdf8", label: "🤝 Interview",       group: "Work" },
+  { name: "presentation", color: "#0369a1", label: "📊 Presentation",   group: "Work" },
+  { name: "volunteer",    color: "#059669", label: "🙌 Volunteer",       group: "Work" },
+  // Personal
+  { name: "birthday",     color: "#ec4899", label: "🎂 Birthday",        group: "Personal" },
+  { name: "hangout",      color: "#10b981", label: "🎉 Hangout",         group: "Personal" },
+  { name: "family",       color: "#f472b6", label: "👨‍👩‍👧 Family",          group: "Personal" },
+  { name: "social",       color: "#fb7185", label: "🥳 Social Event",    group: "Personal" },
+  { name: "travel",       color: "#8b5cf6", label: "✈️ Travel",          group: "Personal" },
+  { name: "holiday",      color: "#d946ef", label: "🎄 Holiday",         group: "Personal" },
+  { name: "personal",     color: "#6366f1", label: "🏠 Personal",        group: "Personal" },
+  { name: "shopping",     color: "#f97316", label: "🛍️ Shopping",        group: "Personal" },
+  { name: "food",         color: "#fbbf24", label: "🍽️ Food & Dining",   group: "Personal" },
+  { name: "prayer",       color: "#a16207", label: "🤲 Prayer",          group: "Personal" },
+  // Health & Fitness
+  { name: "gym",          color: "#22c55e", label: "🏋️ Gym & Fitness",  group: "Health" },
+  { name: "health",       color: "#f43f5e", label: "⚕️ Health",          group: "Health" },
+  { name: "sports",       color: "#84cc16", label: "⚽ Sports",          group: "Health" },
+  { name: "appointment",  color: "#e11d48", label: "🏥 Appointment",     group: "Health" },
+  // Finance & Misc
+  { name: "finance",      color: "#eab308", label: "💰 Finance",         group: "Finance" },
+  { name: "music",        color: "#c084fc", label: "🎵 Music",           group: "Misc" },
+  { name: "other",        color: "#64748b", label: "📌 Other",           group: "Misc" },
 ];
 
 const TAG_COLOR_MAP = EVENT_TAGS.reduce(
@@ -74,7 +104,106 @@ const TAG_COLOR_MAP = EVENT_TAGS.reduce(
   {} as Record<string, string>,
 );
 
+const TAG_GROUPS = ["Academic", "Work", "Personal", "Health", "Finance", "Misc"] as const;
+
+/* ── Custom Tag Dropdown ─────────────────────────────────── */
+const TagDropdown = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selectedTag = EVENT_TAGS.find((t) => t.name === value);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 bg-zinc-900 border border-zinc-700 hover:border-zinc-500 rounded-xl px-3 py-2.5 text-zinc-100 transition-colors text-left"
+        style={{ borderLeftWidth: "4px", borderLeftColor: selectedTag?.color ?? "#64748b" }}
+      >
+        <span className="text-lg leading-none">{selectedTag?.label.split(" ")[0]}</span>
+        <span className="flex-1 text-sm">{selectedTag?.label.split(" ").slice(1).join(" ")}</span>
+        <div
+          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: selectedTag?.color ?? "#64748b" }}
+        />
+        <svg
+          className={`w-4 h-4 text-zinc-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Dropdown list — opens downward */}
+      {open && (
+        <div
+          className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+          style={{ maxHeight: "260px", overflowY: "auto" }}
+        >
+          {TAG_GROUPS.map((group) => {
+            const groupTags = EVENT_TAGS.filter((t) => t.group === group);
+            if (!groupTags.length) return null;
+            return (
+              <div key={group}>
+                {/* Group header */}
+                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-zinc-500 bg-zinc-950/60 sticky top-0">
+                  {group}
+                </div>
+                {groupTags.map((tag) => (
+                  <button
+                    key={tag.name}
+                    type="button"
+                    onClick={() => { onChange(tag.name); setOpen(false); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left ${
+                      value === tag.name
+                        ? "bg-zinc-700/60 text-white"
+                        : "text-zinc-300 hover:bg-zinc-800/80"
+                    }`}
+                  >
+                    {/* Color dot */}
+                    <div
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    {/* Emoji */}
+                    <span className="text-base leading-none">{tag.label.split(" ")[0]}</span>
+                    {/* Name */}
+                    <span className="flex-1">{tag.label.split(" ").slice(1).join(" ")}</span>
+                    {/* Checkmark */}
+                    {value === tag.name && (
+                      <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Calendar = () => {
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -231,21 +360,21 @@ export const Calendar = () => {
       <div
         key={day}
         onClick={() => setSelectedDate(dateStr)}
-        className={`rounded-lg border-2 p-1.5 cursor-pointer transition h-20 ${
+        className={`relative rounded-xl p-2 cursor-pointer transition-all h-24 flex flex-col gap-1 border border-zinc-800/60 ${
           today
-            ? "border-yellow-500 bg-yellow-500/10"
+            ? "border-blue-500/50 bg-blue-500/10 shadow-[inset_0_0_20px_rgba(59,130,246,0.1)]"
             : isPast
-              ? "border-zinc-800/50 bg-zinc-900/30 opacity-60"
+              ? "bg-zinc-900/30 opacity-60"
               : dateStr === selectedDate
-                ? "border-blue-500 bg-blue-500/10"
-                : "border-zinc-800 hover:border-zinc-700"
+                ? "border-zinc-500 bg-zinc-800/50"
+                : "bg-zinc-900/40 hover:bg-zinc-800/60"
         }`}
       >
         <div className="flex items-center justify-between mb-0.5">
           <span
             className={`text-xs font-bold ${
               today
-                ? "text-yellow-500"
+                ? "text-blue-400"
                 : isPast
                   ? "text-zinc-600"
                   : "text-zinc-300"
@@ -263,25 +392,32 @@ export const Calendar = () => {
             </span>
           )}
         </div>
-        <div className="space-y-0.5">
-          {dayEvents.slice(0, 1).map((event) => (
+        <div className="space-y-1 overflow-hidden flex-1">
+          {dayEvents.slice(0, 3).map((event) => (
             <div
               key={event.occurrenceId}
-              className={`text-[10px] px-1 py-0.5 rounded truncate ${
-                isPast ? "opacity-70" : ""
+              className={`text-[10px] leading-tight px-1.5 py-1 rounded-md overflow-hidden font-medium ${
+                isPast ? "opacity-60" : ""
               }`}
               style={{
-                backgroundColor: TAG_COLOR_MAP[event.tag] + "40",
+                backgroundColor: TAG_COLOR_MAP[event.tag] + "20",
                 color: TAG_COLOR_MAP[event.tag],
+                borderLeft: `2px solid ${TAG_COLOR_MAP[event.tag]}`,
               }}
               title={event.title}
             >
-              {event.title}
+              <div className="flex items-center gap-1 w-full">
+                <span>{EVENT_TAGS.find(t => t.name === event.tag)?.label.split(' ')[0]}</span>
+                <span className="truncate">
+                  {event.time ? <span className="opacity-70 mr-0.5">{event.time}</span> : null}
+                  {event.title}
+                </span>
+              </div>
             </div>
           ))}
-          {dayEvents.length > 1 && (
-            <div className="text-[10px] text-zinc-500 px-1">
-              +{dayEvents.length - 1} more
+          {dayEvents.length > 3 && (
+            <div className="text-[10px] text-zinc-500 px-1 font-medium">
+              +{dayEvents.length - 3} more
             </div>
           )}
         </div>
@@ -296,30 +432,37 @@ export const Calendar = () => {
   return (
     <div className="h-full flex flex-col bg-zinc-950 text-zinc-100">
       {/* Header */}
-      <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+      <div className="p-4 border-b border-zinc-800 flex flex-wrap gap-4 items-center justify-between bg-zinc-900/50">
         <h2 className="text-xl font-bold flex items-center gap-2">
-          📅 Calendar & Events
+          <FaCalendarAlt className="text-blue-500" />
+          Calendar & Events
         </h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={prevMonth}
-            className="p-2 hover:bg-zinc-800 rounded transition"
-          >
-            <FaChevronLeft size={16} />
-          </button>
-          <button
-            onClick={goToToday}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition"
-          >
-            Today
-          </button>
-          <button
-            onClick={nextMonth}
-            className="p-2 hover:bg-zinc-800 rounded transition"
-          >
-            <FaChevronRight size={16} />
-          </button>
-          <span className="text-lg font-semibold ml-2">{monthName}</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center bg-zinc-900 border border-zinc-700/50 rounded-xl overflow-hidden shadow-sm">
+            <button
+              onClick={prevMonth}
+              className="p-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-100"
+              title="Previous Month"
+            >
+              <FaChevronLeft size={14} />
+            </button>
+            <button
+              onClick={goToToday}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 transition-colors text-sm font-semibold text-white border-l border-r border-zinc-700/50"
+            >
+              Today
+            </button>
+            <button
+              onClick={nextMonth}
+              className="p-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-100"
+              title="Next Month"
+            >
+              <FaChevronRight size={14} />
+            </button>
+          </div>
+          <div className="text-lg font-bold text-zinc-100 min-w-[130px] text-right">
+            {monthName}
+          </div>
         </div>
       </div>
 
@@ -341,11 +484,11 @@ export const Calendar = () => {
       {/* Day View Modal */}
       {selectedDate && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={() => setSelectedDate(null)}
         >
           <div
-            className="bg-zinc-900 rounded-lg border-2 border-blue-600 w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
+            className="bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-zinc-700 flex items-center justify-between">
@@ -375,70 +518,73 @@ export const Calendar = () => {
                 {selectedEvents.length !== 1 ? "s" : ""} scheduled
               </div>
 
-              <div className="space-y-3 mb-4">
+              <div className="space-y-2 mb-4">
+                {selectedEvents.length === 0 && (
+                  <div className="text-center py-8 text-zinc-500">
+                    <div className="text-3xl mb-2">📭</div>
+                    <p className="text-sm">No events for this day</p>
+                  </div>
+                )}
                 {selectedEvents.map((event) => {
                   const tagDef = EVENT_TAGS.find((t) => t.name === event.tag);
+                  const emoji = tagDef?.label.split(" ")[0] ?? "📌";
+                  const tagColor = TAG_COLOR_MAP[event.tag] ?? "#64748b";
                   return (
                     <div
                       key={event.occurrenceId}
-                      className="border-2 rounded-lg p-3"
-                      style={{ borderColor: TAG_COLOR_MAP[event.tag] }}
+                      className="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all hover:bg-zinc-800/60"
+                      style={{
+                        borderLeft: `3px solid ${tagColor}`,
+                        background: `linear-gradient(90deg, ${tagColor}10 0%, transparent 60%)`,
+                      }}
                     >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2 flex-1">
-                          <div
-                            className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
-                            style={{
-                              backgroundColor: TAG_COLOR_MAP[event.tag],
-                            }}
-                          >
-                            {tagDef?.label.charAt(0)}
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-bold text-zinc-100">
-                              {event.title}
-                            </h4>
-                            {event.time && (
-                              <div className="text-sm text-zinc-400">
-                                ⏰ {event.time}
-                              </div>
-                            )}
-                            {event.repeatEnabled && event.repeatPattern && (
-                              <div className="text-xs text-emerald-300 mt-1">
-                                Repeats {event.repeatPattern}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div
-                          className="px-2 py-1 rounded text-xs font-bold uppercase"
-                          style={{
-                            backgroundColor: TAG_COLOR_MAP[event.tag] + "40",
-                            color: TAG_COLOR_MAP[event.tag],
-                          }}
-                        >
-                          {tagDef?.label}
-                        </div>
+                      {/* Emoji icon */}
+                      <div
+                        className="w-9 h-9 rounded-lg flex items-center justify-center text-xl flex-shrink-0 shadow-sm"
+                        style={{ backgroundColor: tagColor + "30" }}
+                      >
+                        {emoji}
                       </div>
 
-                      {event.description && (
-                        <p className="text-sm text-zinc-400 mb-2">
-                          {event.description}
-                        </p>
-                      )}
+                      {/* Main info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-zinc-100 truncate">{event.title}</span>
+                          {event.repeatEnabled && (
+                            <span className="text-[10px] text-emerald-400 border border-emerald-400/40 rounded px-1">🔁 repeat</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {event.time && (
+                            <span className="text-xs text-zinc-400">⏰ {event.time}</span>
+                          )}
+                          <span
+                            className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: tagColor + "30", color: tagColor }}
+                          >
+                            {tagDef?.label}
+                          </span>
+                        </div>
+                        {event.description && (
+                          <p className="text-xs text-zinc-500 mt-1 truncate">{event.description}</p>
+                        )}
+                      </div>
 
-                      <div className="flex gap-2">
+                      {/* Actions — visible on hover */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => setEditingEvent(event)}
-                          className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition"
+                          className="p-1.5 rounded-lg hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 transition"
+                          title="Edit event"
                         >
-                          👁️ View Details
+                          ✏️
                         </button>
                         <button
                           onClick={() => deleteEvent(event.id)}
-                          className="px-3 py-2 hover:bg-zinc-800 rounded transition"
+                          className="p-1.5 rounded-lg hover:bg-red-600/20 text-zinc-500 hover:text-red-400 transition"
+                          title="Delete event"
                         >
-                          <FaTrash size={14} />
+                          <FaTrash size={12} />
                         </button>
                       </div>
                     </div>
@@ -472,14 +618,14 @@ export const Calendar = () => {
       {/* Add/Edit Event Modal */}
       {editingEvent && (
         <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4"
           onClick={() => {
             setEditingEvent(null);
             setIsAddingEvent(false);
           }}
         >
           <div
-            className="bg-zinc-900 rounded-lg border border-zinc-700 w-full max-w-md m-4"
+            className="bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl w-full max-w-md flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-zinc-700">
@@ -499,7 +645,7 @@ export const Calendar = () => {
                   onChange={(e) =>
                     setEditingEvent({ ...editingEvent, title: e.target.value })
                   }
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                  className="w-full bg-zinc-950/50 border border-white/10 focus:border-blue-500/50 rounded-xl px-4 py-2.5 text-zinc-100 outline-none transition-colors"
                   placeholder="Event title"
                 />
               </div>
@@ -536,29 +682,10 @@ export const Calendar = () => {
                 <label className="block text-sm font-medium text-zinc-300 mb-1">
                   Tag
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {EVENT_TAGS.map((tag) => (
-                    <button
-                      key={tag.name}
-                      onClick={() =>
-                        setEditingEvent({ ...editingEvent, tag: tag.name })
-                      }
-                      className={`px-3 py-2 rounded text-sm font-medium transition ${
-                        editingEvent.tag === tag.name
-                          ? "text-white"
-                          : "opacity-50 hover:opacity-100"
-                      }`}
-                      style={{
-                        backgroundColor:
-                          editingEvent.tag === tag.name
-                            ? tag.color
-                            : tag.color + "40",
-                      }}
-                    >
-                      {tag.label}
-                    </button>
-                  ))}
-                </div>
+                <TagDropdown
+                  value={editingEvent.tag}
+                  onChange={(val) => setEditingEvent({ ...editingEvent, tag: val })}
+                />
               </div>
 
               <div>
@@ -574,7 +701,7 @@ export const Calendar = () => {
                     })
                   }
                   rows={3}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100"
+                  className="w-full bg-zinc-950/50 border border-white/10 focus:border-blue-500/50 rounded-xl px-4 py-2.5 text-zinc-100 outline-none transition-colors resize-none"
                   placeholder="Event details..."
                 />
               </div>
@@ -642,13 +769,13 @@ export const Calendar = () => {
               </div>
             </div>
 
-            <div className="p-4 border-t border-zinc-700 flex gap-2">
+              <div className="p-4 border-t border-white/10 flex gap-3">
               <button
                 onClick={() => {
                   setEditingEvent(null);
                   setIsAddingEvent(false);
                 }}
-                className="flex-1 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded transition"
+                className="flex-1 px-4 py-2.5 bg-zinc-800/80 hover:bg-zinc-700 rounded-xl font-medium transition"
               >
                 Cancel
               </button>
@@ -666,7 +793,7 @@ export const Calendar = () => {
                   setEditingEvent(null);
                   setIsAddingEvent(false);
                 }}
-                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition"
+                className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium shadow-[0_0_15px_rgba(37,99,235,0.4)] transition"
               >
                 {isAddingEvent ? "Add" : "Save"}
               </button>

@@ -66,7 +66,7 @@ export const NotificationBell = () => {
   return (
     <button
       onClick={toggleInbox}
-      className={`relative p-2 rounded-lg transition hover:bg-white/10 ${
+      className={`relative p-2 rounded-lg transition overflow-visible hover:bg-white/10 ${
         isInboxOpen
           ? "bg-white/10 text-white"
           : "text-zinc-400 hover:text-white"
@@ -75,7 +75,7 @@ export const NotificationBell = () => {
     >
       <FaBell size={16} />
       {unreadCount > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse z-10 shadow-sm border border-zinc-900">
           {unreadCount > 99 ? "99+" : unreadCount}
         </span>
       )}

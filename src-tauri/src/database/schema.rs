@@ -102,6 +102,14 @@ pub fn get_migrations() -> Vec<Migration> {
                 CREATE INDEX IF NOT EXISTS idx_assets_page_id ON assets(page_id);
             "#,
             kind: MigrationKind::Up,
-        }
+        },
+        Migration {
+            version: 3,
+            description: "add_page_cover",
+            sql: r#"
+                ALTER TABLE pages ADD COLUMN cover TEXT;
+            "#,
+            kind: MigrationKind::Up,
+        },
     ]
 }

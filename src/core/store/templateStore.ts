@@ -22,8 +22,40 @@ interface TemplateStore {
 let db: Database | null = null;
 let isInitializing = false;
 
+const WEB_TEMPLATE_STORAGE_KEY = "omni-web-templates";
+
+const isTauriRuntime = () =>
+  typeof window !== "undefined" &&
+  typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+
+const loadWebTemplates = (): Template[] => {
+  try {
+    const raw = localStorage.getItem(WEB_TEMPLATE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveWebTemplates = (templates: Template[]) => {
+  localStorage.setItem(WEB_TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+};
+
+const toTemplateMap = (templates: Template[]) => {
+  const templateMap: Record<string, Template> = {};
+  templates.forEach((template) => {
+    templateMap[template.id] = template;
+  });
+  return templateMap;
+};
+
 const safeGetDb = async () => {
   try {
+    if (!isTauriRuntime()) {
+      return null;
+    }
     if (!db) {
       db = await Database.load(DB_URL);
       await db.execute("PRAGMA journal_mode = WAL;");
@@ -32,7 +64,7 @@ const safeGetDb = async () => {
     return db;
   } catch (e) {
     console.error("DB ERROR:", e);
-    throw e;
+    return null;
   }
 };
 
@@ -44,6 +76,11 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     set({ isLoading: true });
     try {
       const db = await safeGetDb();
+      if (!db) {
+        const merged = [...builtinTemplates, ...loadWebTemplates()];
+        set({ templates: toTemplateMap(merged) });
+        return;
+      }
       const rows = await db.select<any[]>(
         "SELECT * FROM templates ORDER BY is_builtin DESC, name ASC",
       );
@@ -88,6 +125,23 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     const id = crypto.randomUUID();
     const contentJson = JSON.stringify(content);
 
+    if (!db) {
+      const template: Template = {
+        id,
+        name,
+        description: description || "",
+        icon: icon || null,
+        content,
+        is_builtin: false,
+      };
+      const webTemplates = loadWebTemplates();
+      saveWebTemplates([...webTemplates, template]);
+      set((state) => ({
+        templates: { ...state.templates, [id]: template },
+      }));
+      return id;
+    }
+
     await db.execute(
       "INSERT INTO templates (id, name, description, icon, content, is_builtin) VALUES ($1, $2, $3, $4, $5, $6)",
       [id, name, description || "", icon || null, contentJson, 0],
@@ -116,7 +170,12 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     }
 
     const db = await safeGetDb();
-    await db.execute("DELETE FROM templates WHERE id = $1", [id]);
+    if (db) {
+      await db.execute("DELETE FROM templates WHERE id = $1", [id]);
+    } else {
+      const nextWebTemplates = loadWebTemplates().filter((t) => t.id !== id);
+      saveWebTemplates(nextWebTemplates);
+    }
 
     set((state) => {
       const newTemplates = { ...state.templates };
@@ -138,6 +197,11 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     isInitializing = true;
     try {
       const db = await safeGetDb();
+      if (!db) {
+        const merged = [...builtinTemplates, ...loadWebTemplates()];
+        set({ templates: toTemplateMap(merged) });
+        return;
+      }
 
       // We want to ensure the DB matches the code for built-in templates.
       // Simplest strategy: Upsert all built-in templates.

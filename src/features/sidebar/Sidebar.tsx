@@ -378,22 +378,23 @@ export const Sidebar = ({ view }: { view?: string }) => {
   return (
     <>
       <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 no-print">
-        <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <span className="font-semibold text-zinc-700 dark:text-zinc-200">
+        <div className="px-4 py-3 border-b border-zinc-200/80 dark:border-zinc-800 flex items-center justify-between bg-gradient-to-b from-white/70 to-transparent dark:from-zinc-950/70">
+          <span className="flex items-center gap-2 text-sm font-semibold tracking-wide text-zinc-800 dark:text-zinc-100">
+            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-blue-500 shadow-[0_0_16px_rgba(59,130,246,0.65)]" />
             Omni
           </span>
           {isDiagramMode ? (
             <div className="flex items-center gap-1">
               <button
                 onClick={handleCreateDiagramFolder}
-                className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-900 rounded"
+                className="p-2 hover:bg-zinc-200/80 dark:hover:bg-zinc-900 rounded-xl transition"
                 title="New Folder"
               >
                 <FolderPlus size={16} />
               </button>
               <button
                 onClick={handleCreateDiagram}
-                className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-900 rounded"
+                className="p-2 hover:bg-zinc-200/80 dark:hover:bg-zinc-900 rounded-xl transition"
                 title="New Diagram"
               >
                 <Layers3 size={16} />
@@ -404,7 +405,7 @@ export const Sidebar = ({ view }: { view?: string }) => {
               onClick={() =>
                 isChatMode ? addConversation() : handleAddPage(null)
               }
-              className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-900 rounded"
+              className="p-2 hover:bg-zinc-200/80 dark:hover:bg-zinc-900 rounded-xl transition"
               title={isChatMode ? "New Conversation" : "New Page"}
             >
               <Plus size={16} />
@@ -413,20 +414,20 @@ export const Sidebar = ({ view }: { view?: string }) => {
         </div>
 
         {isDiagramMode ? (
-          <div className="border-b border-zinc-200 dark:border-zinc-800 p-2">
-            <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
+          <div className="border-b border-zinc-200/80 dark:border-zinc-800 p-3">
+            <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
               Diagram Library
             </div>
             <button
               onClick={handleCreateDiagramFolder}
-              className="w-full px-2 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded flex items-center gap-2 transition"
+              className="w-full px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-xl flex items-center gap-2 transition"
             >
               <FolderPlus size={14} />
               New Folder
             </button>
             <button
               onClick={handleCreateDiagram}
-              className="w-full mt-1 px-2 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded flex items-center gap-2 transition"
+              className="w-full mt-1 px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-xl flex items-center gap-2 transition"
             >
               <Layers3 size={14} />
               New Diagram
@@ -434,13 +435,13 @@ export const Sidebar = ({ view }: { view?: string }) => {
           </div>
         ) : (
           !isChatMode && (
-            <div className="border-b border-zinc-200 dark:border-zinc-800 p-2">
-              <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
+            <div className="border-b border-zinc-200/80 dark:border-zinc-800 p-3">
+              <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
                 Templates
               </div>
               <button
                 onClick={() => setShowTemplateManager(true)}
-                className="w-full px-2 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded flex items-center gap-2 transition"
+                className="w-full px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-xl flex items-center gap-2 transition"
               >
                 <FolderOpen size={14} />
                 Manage Templates
@@ -452,7 +453,7 @@ export const Sidebar = ({ view }: { view?: string }) => {
         <div className="flex-1 overflow-y-auto py-2">
           {isDiagramMode ? (
             <>
-              <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-4">
+              <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-4">
                 Folders
               </div>
               {diagramFolders.length === 0 && (
@@ -476,7 +477,7 @@ export const Sidebar = ({ view }: { view?: string }) => {
             </>
           ) : isChatMode ? (
             <>
-              <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-4">
+              <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-4">
                 Conversations
               </div>
               {conversations.length === 0 && (
@@ -497,7 +498,7 @@ export const Sidebar = ({ view }: { view?: string }) => {
             </>
           ) : (
             <>
-              <div className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
+              <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
                 Pages
               </div>
               {rootIds.map((id) => (

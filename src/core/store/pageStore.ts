@@ -8,6 +8,7 @@ export interface PageMetadata {
   parent_id: string | null;
   title: string;
   icon: string | null;
+  cover: string | null;
   has_children?: boolean; // Optional helper
 }
 
@@ -26,25 +27,107 @@ interface PageStore {
   ) => Promise<string>;
   deletePage: (pageId: string) => Promise<void>;
   updatePageTitle: (pageId: string, title: string) => Promise<void>;
+  updatePageCover: (pageId: string, cover: string | null) => Promise<void>;
   setActivePage: (pageId: string | null) => void;
 }
 
 let db: Database | null = null;
+let hasCoverColumn: boolean | null = null;
+
+const WEB_PAGE_STORAGE_KEY = "omni-web-pages";
+
+const isTauriRuntime = () =>
+  typeof window !== "undefined" &&
+  typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+
+const loadWebPages = (): PageMetadata[] => {
+  try {
+    const raw = localStorage.getItem(WEB_PAGE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (p) =>
+        p &&
+        typeof p.id === "string" &&
+        typeof p.title === "string" &&
+        (typeof p.cover === "string" ||
+          p.cover === null ||
+          p.cover === undefined),
+    );
+  } catch {
+    return [];
+  }
+};
+
+const saveWebPages = (pages: PageMetadata[]) => {
+  localStorage.setItem(WEB_PAGE_STORAGE_KEY, JSON.stringify(pages));
+};
+
+const buildStateFromPages = (rows: PageMetadata[]) => {
+  const pageMap: Record<string, PageMetadata> = {};
+  const childMap: Record<string, string[]> = {};
+  const roots: string[] = [];
+
+  rows.forEach((row) => {
+    pageMap[row.id] = row;
+    if (!row.parent_id) {
+      roots.push(row.id);
+    } else {
+      childMap[row.parent_id] = childMap[row.parent_id] || [];
+      childMap[row.parent_id].push(row.id);
+    }
+  });
+
+  return { pageMap, childMap, roots };
+};
+
+const normalizePage = (page: Partial<PageMetadata>): PageMetadata => ({
+  id: page.id || crypto.randomUUID(),
+  parent_id: page.parent_id ?? null,
+  title: page.title || "Untitled",
+  icon: page.icon ?? null,
+  cover: page.cover ?? null,
+  has_children: page.has_children,
+});
+
+const ensureCoverColumn = async (database: Database) => {
+  if (hasCoverColumn !== null) return;
+
+  try {
+    const columns = await database.select<Array<{ name: string }>>(
+      "PRAGMA table_info(pages)",
+    );
+    hasCoverColumn = columns.some((column) => column.name === "cover");
+
+    if (!hasCoverColumn) {
+      await database.execute("ALTER TABLE pages ADD COLUMN cover TEXT");
+      hasCoverColumn = true;
+    }
+  } catch (error) {
+    console.warn("Could not ensure pages.cover column:", error);
+    hasCoverColumn = false;
+  }
+};
 
 // Add error handler for DB loading in Prod
 const safeGetDb = async () => {
   try {
+    if (!isTauriRuntime()) {
+      return null;
+    }
     if (!db) {
       db = await Database.load(DB_URL);
       // Initialize PRAGMAs for every connection
       await db.execute("PRAGMA journal_mode = WAL;");
       await db.execute("PRAGMA foreign_keys = ON;");
       await db.execute("PRAGMA recursive_triggers = ON;");
+      await ensureCoverColumn(db);
     }
     return db;
   } catch (e) {
-    alert("CRITICAL DB ERROR: " + e);
-    throw e;
+    console.error("CRITICAL DB ERROR:", e);
+    return null;
   }
 };
 
@@ -59,6 +142,12 @@ export const usePageStore = create<PageStore>((set, get) => ({
     set({ isLoading: true });
     try {
       const db = await safeGetDb();
+      if (!db) {
+        const webPages = loadWebPages();
+        const { pageMap, childMap, roots } = buildStateFromPages(webPages);
+        set({ pages: pageMap, rootPageIds: roots, childrenMap: childMap });
+        return;
+      }
       // Recursive CTE to get all pages metadata
       // For Phase 1, we can actually just select all pages if the count is small (<10k),
       // but let's be robust.
@@ -69,23 +158,15 @@ export const usePageStore = create<PageStore>((set, get) => ({
       // User said: "Fetch entire page tree... in one single database call".
       // SELECT id, parent_id, title, icon FROM pages; IS one call.
 
-      const rows = await db.select<PageMetadata[]>(
-        "SELECT id, parent_id, title, icon FROM pages ORDER BY title ASC",
-      );
+      const rows = hasCoverColumn
+        ? await db.select<PageMetadata[]>(
+            "SELECT id, parent_id, title, icon, cover FROM pages ORDER BY title ASC",
+          )
+        : await db.select<PageMetadata[]>(
+            "SELECT id, parent_id, title, icon, NULL as cover FROM pages ORDER BY title ASC",
+          );
 
-      const pageMap: Record<string, PageMetadata> = {};
-      const childMap: Record<string, string[]> = {};
-      const roots: string[] = [];
-
-      rows.forEach((row) => {
-        pageMap[row.id] = row;
-        if (!row.parent_id) {
-          roots.push(row.id);
-        } else {
-          childMap[row.parent_id] = childMap[row.parent_id] || [];
-          childMap[row.parent_id].push(row.id);
-        }
-      });
+      const { pageMap, childMap, roots } = buildStateFromPages(rows);
 
       set({ pages: pageMap, rootPageIds: roots, childrenMap: childMap });
     } catch (error) {
@@ -102,6 +183,40 @@ export const usePageStore = create<PageStore>((set, get) => ({
       const newId = crypto.randomUUID();
       let title = "Untitled";
       let initialContent: any[] = [];
+
+      if (!db) {
+        const webPages = loadWebPages();
+        const newPage: PageMetadata = {
+          id: newId,
+          parent_id: parentId,
+          title,
+          icon: null,
+          cover: null,
+        };
+        const nextPages = [...webPages, newPage];
+        saveWebPages(nextPages);
+
+        set((state) => {
+          const newPages = { ...state.pages, [newId]: newPage };
+          const newRoots = parentId
+            ? state.rootPageIds
+            : [...state.rootPageIds, newId];
+          const newChildrenMap = { ...state.childrenMap };
+          if (parentId) {
+            newChildrenMap[parentId] = [
+              ...(newChildrenMap[parentId] || []),
+              newId,
+            ];
+          }
+          return {
+            pages: newPages,
+            rootPageIds: newRoots,
+            childrenMap: newChildrenMap,
+          };
+        });
+
+        return newId;
+      }
 
       // If template is provided, load template content
       if (templateId) {
@@ -175,10 +290,17 @@ export const usePageStore = create<PageStore>((set, get) => ({
         }
       }
 
-      await db.execute(
-        "INSERT INTO pages (id, parent_id, title) VALUES ($1, $2, $3)",
-        [newId, parentId, title],
-      );
+      if (hasCoverColumn) {
+        await db.execute(
+          "INSERT INTO pages (id, parent_id, title, icon, cover) VALUES ($1, $2, $3, $4, $5)",
+          [newId, parentId, title, null, null],
+        );
+      } else {
+        await db.execute(
+          "INSERT INTO pages (id, parent_id, title, icon) VALUES ($1, $2, $3, $4)",
+          [newId, parentId, title, null],
+        );
+      }
 
       // If template content exists, save it to blocks
       if (initialContent.length > 0) {
@@ -194,6 +316,7 @@ export const usePageStore = create<PageStore>((set, get) => ({
         parent_id: parentId,
         title,
         icon: null,
+        cover: null,
       };
 
       set((state) => {
@@ -228,6 +351,31 @@ export const usePageStore = create<PageStore>((set, get) => ({
   deletePage: async (pageId) => {
     // Cascading delete handled by DB Trigger
     const db = await safeGetDb();
+    if (!db) {
+      const webPages = loadWebPages();
+      const idsToDelete = new Set<string>();
+      const childrenMap: Record<string, string[]> = {};
+
+      webPages.forEach((page) => {
+        if (page.parent_id) {
+          childrenMap[page.parent_id] = childrenMap[page.parent_id] || [];
+          childrenMap[page.parent_id].push(page.id);
+        }
+      });
+
+      const stack = [pageId];
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        if (idsToDelete.has(current)) continue;
+        idsToDelete.add(current);
+        (childrenMap[current] || []).forEach((child) => stack.push(child));
+      }
+
+      const nextPages = webPages.filter((p) => !idsToDelete.has(p.id));
+      saveWebPages(nextPages);
+      await get().loadTree();
+      return;
+    }
     await db.execute("DELETE FROM pages WHERE id = $1", [pageId]);
 
     // Optimistic update - actually we should probably reload tree or handle local cascading removal
@@ -241,15 +389,44 @@ export const usePageStore = create<PageStore>((set, get) => ({
 
   updatePageTitle: async (pageId, title) => {
     const db = await safeGetDb();
-    await db.execute(
-      "UPDATE pages SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [title, pageId],
-    );
+    if (db) {
+      await db.execute(
+        "UPDATE pages SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        [title, pageId],
+      );
+    } else {
+      const webPages = loadWebPages().map((p) =>
+        p.id === pageId ? { ...normalizePage(p), title } : normalizePage(p),
+      );
+      saveWebPages(webPages);
+    }
 
     set((state) => ({
       pages: {
         ...state.pages,
         [pageId]: { ...state.pages[pageId], title },
+      },
+    }));
+  },
+
+  updatePageCover: async (pageId, cover) => {
+    const db = await safeGetDb();
+    if (db && hasCoverColumn) {
+      await db.execute(
+        "UPDATE pages SET cover = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        [cover, pageId],
+      );
+    } else {
+      const webPages = loadWebPages().map((p) =>
+        p.id === pageId ? { ...normalizePage(p), cover } : normalizePage(p),
+      );
+      saveWebPages(webPages);
+    }
+
+    set((state) => ({
+      pages: {
+        ...state.pages,
+        [pageId]: { ...state.pages[pageId], cover },
       },
     }));
   },

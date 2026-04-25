@@ -6,10 +6,19 @@ import { AIAction, AiConfig, BackendType } from "./types";
  * Keeps context window manageable for small models (4-8K context).
  */
 const MAX_HISTORY_MESSAGES = 6;
+const WEB_AI_UNAVAILABLE_MESSAGE =
+  "AI is currently available in the desktop app runtime only.";
+
+const isTauriRuntime = () =>
+  typeof window !== "undefined" &&
+  typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
 
 export const aiService = {
   /// Check if Ollama is running
   async healthCheck(): Promise<boolean> {
+    if (!isTauriRuntime()) {
+      return false;
+    }
     try {
       return await invoke<boolean>("ai_health_check");
     } catch (error) {
@@ -20,6 +29,9 @@ export const aiService = {
 
   /// Get list of available models
   async listModels(): Promise<string[]> {
+    if (!isTauriRuntime()) {
+      return [];
+    }
     try {
       return await invoke<string[]>("ai_list_models");
     } catch (error) {
@@ -30,6 +42,9 @@ export const aiService = {
 
   /// Get predefined AI actions
   async getActions(): Promise<AIAction[]> {
+    if (!isTauriRuntime()) {
+      return [];
+    }
     try {
       return await invoke<AIAction[]>("ai_get_actions");
     } catch (error) {
@@ -45,6 +60,9 @@ export const aiService = {
     selection: string,
     pageContext?: string,
   ): Promise<string> {
+    if (!isTauriRuntime()) {
+      throw new Error(WEB_AI_UNAVAILABLE_MESSAGE);
+    }
     try {
       return await invoke<string>("ai_execute_action", {
         _page_id: pageId,
@@ -64,6 +82,13 @@ export const aiService = {
 
   /// Get current AI state
   async getState(): Promise<AiConfig> {
+    if (!isTauriRuntime()) {
+      return {
+        backend: "Ollama",
+        base_url: "http://localhost:11434",
+        model: "",
+      };
+    }
     try {
       return await invoke<AiConfig>("ai_get_state");
     } catch (error) {
@@ -177,12 +202,20 @@ Give a brief 1-sentence intro, then the JSON tool block:
     if (words.length > 40) {
       const chunks = new Map<string, number>();
       for (let i = 0; i < words.length - 4; i++) {
-        const chunk = words.slice(i, i + 5).join(" ").toLowerCase();
+        const chunk = words
+          .slice(i, i + 5)
+          .join(" ")
+          .toLowerCase();
         chunks.set(chunk, (chunks.get(chunk) || 0) + 1);
       }
       for (const [chunk, count] of chunks.entries()) {
         if (count >= 8) {
-          console.warn("⚠️ Garbled response detected, chunk:", chunk, "count:", count);
+          console.warn(
+            "⚠️ Garbled response detected, chunk:",
+            chunk,
+            "count:",
+            count,
+          );
           return true;
         }
       }
@@ -200,9 +233,18 @@ Give a brief 1-sentence intro, then the JSON tool block:
     let esc = false;
     for (let i = startIdx; i < text.length; i++) {
       const ch = text[i];
-      if (esc) { esc = false; continue; }
-      if (ch === "\\") { esc = true; continue; }
-      if (ch === '"') { inStr = !inStr; continue; }
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (ch === "\\") {
+        esc = true;
+        continue;
+      }
+      if (ch === '"') {
+        inStr = !inStr;
+        continue;
+      }
       if (inStr) continue;
       if (ch === "{" || ch === "[") depth++;
       else if (ch === "}" || ch === "]") {
@@ -308,10 +350,14 @@ Give a brief 1-sentence intro, then the JSON tool block:
   normalizeCommands(parsed: any): { action: string; params?: any }[] {
     if (!parsed) return [];
     if (Array.isArray(parsed)) {
-      return parsed.filter((item: any) => item && typeof item.action === "string");
+      return parsed.filter(
+        (item: any) => item && typeof item.action === "string",
+      );
     }
     if (Array.isArray(parsed.commands)) {
-      return parsed.commands.filter((item: any) => item && typeof item.action === "string");
+      return parsed.commands.filter(
+        (item: any) => item && typeof item.action === "string",
+      );
     }
     if (parsed && typeof parsed.action === "string") {
       return [parsed];
@@ -342,12 +388,26 @@ Give a brief 1-sentence intro, then the JSON tool block:
 
     for (let i = 0; i < input.length; i += 1) {
       const ch = input[i];
-      if (escaped) { out += ch; escaped = false; continue; }
-      if (ch === "\\") { out += ch; escaped = true; continue; }
-      if (ch === '"') { inString = !inString; out += ch; continue; }
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        out += ch;
+        continue;
+      }
       if (inString && (ch === "\n" || ch === "\r")) {
         out += "\\n";
-        if (ch === "\r" && input[i + 1] === "\n") { i += 1; }
+        if (ch === "\r" && input[i + 1] === "\n") {
+          i += 1;
+        }
         continue;
       }
       out += ch;
@@ -379,7 +439,10 @@ Give a brief 1-sentence intro, then the JSON tool block:
   sanitizeHistoryMessage(content: string, role?: string): string {
     let sanitized = content;
     // Strip context blocks using both old and new label formats
-    sanitized = sanitized.replace(/\n\n--- CURRENT PAGE CONTENT[\s\S]*?---/g, "");
+    sanitized = sanitized.replace(
+      /\n\n--- CURRENT PAGE CONTENT[\s\S]*?---/g,
+      "",
+    );
     sanitized = sanitized.replace(/\n\nCURRENT PAGE CONTENT:\n[\s\S]*$/, "");
     sanitized = sanitized.replace(/\n\nPDF CONTEXT:\n[\s\S]*$/, "");
     sanitized = sanitized.replace(/\n\nSELECTED TEXT[^:]*:\n[\s\S]*$/, "");
@@ -457,6 +520,9 @@ Give a brief 1-sentence intro, then the JSON tool block:
     baseUrl: string,
     model: string,
   ): Promise<void> {
+    if (!isTauriRuntime()) {
+      return;
+    }
     await invoke("ai_set_state", {
       backend,
       base_url: baseUrl,
@@ -471,6 +537,9 @@ Give a brief 1-sentence intro, then the JSON tool block:
     model: string,
     backend: BackendType,
   ): Promise<string> {
+    if (!isTauriRuntime()) {
+      throw new Error(WEB_AI_UNAVAILABLE_MESSAGE);
+    }
     try {
       return await invoke<string>("ai_chat", {
         messages,
@@ -500,6 +569,11 @@ Give a brief 1-sentence intro, then the JSON tool block:
     backend: BackendType,
     onChunk: (chunk: string, accumulated: string) => void,
   ): Promise<string> {
+    if (!isTauriRuntime()) {
+      onChunk(WEB_AI_UNAVAILABLE_MESSAGE, WEB_AI_UNAVAILABLE_MESSAGE);
+      return WEB_AI_UNAVAILABLE_MESSAGE;
+    }
+
     let accumulated = "";
 
     const channel = new Channel<string>();
