@@ -1,69 +1,9 @@
 import { createReactBlockSpec } from "@blocknote/react";
-import mermaid from "mermaid";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-const getMermaidThemeConfig = (theme: string) => {
-  if (theme === "default") {
-    return {
-      theme: "base",
-      themeVariables: {
-        background: "#ffffff",
-        primaryColor: "#f8fafc",
-        primaryTextColor: "#0f172a",
-        primaryBorderColor: "#1d4ed8",
-        lineColor: "#334155",
-        secondaryColor: "#e2e8f0",
-        tertiaryColor: "#f1f5f9",
-        tertiaryTextColor: "#0f172a",
-        clusterBkg: "#f8fafc",
-        clusterBorder: "#2563eb",
-        edgeLabelBackground: "#ffffff",
-        fontFamily: "Inter, Segoe UI, sans-serif",
-        fontSize: "16px",
-      },
-    };
-  }
-
-  if (theme === "neutral") {
-    return {
-      theme: "base",
-      themeVariables: {
-        background: "#e2e8f0",
-        primaryColor: "#ffffff",
-        primaryTextColor: "#0f172a",
-        primaryBorderColor: "#334155",
-        lineColor: "#334155",
-        secondaryColor: "#f8fafc",
-        tertiaryColor: "#e2e8f0",
-        tertiaryTextColor: "#0f172a",
-        clusterBkg: "#f8fafc",
-        clusterBorder: "#334155",
-        edgeLabelBackground: "#f8fafc",
-        fontFamily: "Inter, Segoe UI, sans-serif",
-        fontSize: "16px",
-      },
-    };
-  }
-
-  return {
-    theme: "base",
-    themeVariables: {
-      background: "#020617",
-      primaryColor: "#111827",
-      primaryTextColor: "#f8fafc",
-      primaryBorderColor: "#7dd3fc",
-      lineColor: "#cbd5e1",
-      secondaryColor: "#0f172a",
-      tertiaryColor: "#1e293b",
-      tertiaryTextColor: "#f8fafc",
-      clusterBkg: "#0f172a",
-      clusterBorder: "#60a5fa",
-      edgeLabelBackground: "#0f172a",
-      fontFamily: "Inter, Segoe UI, sans-serif",
-      fontSize: "16px",
-    },
-  };
-};
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  initializeMermaidRenderer,
+  renderMermaidMarkup,
+} from "./diagramRenderUtils";
 
 export const MermaidBlock = createReactBlockSpec(
   {
@@ -110,17 +50,11 @@ export const MermaidBlock = createReactBlockSpec(
         [props.block.id],
       );
 
-      useEffect(() => {
-        const themeConfig = getMermaidThemeConfig(theme || "dark");
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "loose",
-          flowchart: { useMaxWidth: true },
-          ...themeConfig,
-        });
+      useLayoutEffect(() => {
+        initializeMermaidRenderer(theme || "dark");
       }, [theme]);
 
-      useEffect(() => {
+      useLayoutEffect(() => {
         if (isEditing) return;
         const el = containerRef.current;
         if (!el) return;
@@ -129,29 +63,41 @@ export const MermaidBlock = createReactBlockSpec(
         // Clear previous render
         el.innerHTML = "";
 
-        try {
+        let cancelled = false;
+        const frameId = requestAnimationFrame(() => {
           const render = async () => {
-            // Clear mermaid cache to force fresh render
-            if (mermaid.mermaidAPI) {
-              mermaid.mermaidAPI.reset?.();
-            }
+            try {
+              const result = await renderMermaidMarkup({
+                code,
+                theme: (theme || "dark") as any,
+                renderId: renderedId,
+                padding: 18,
+              });
+              if (cancelled) return;
 
-            const result = await mermaid.render(renderedId, code);
-            el.innerHTML = result.svg;
+              el.innerHTML = result;
 
-            // Make SVG responsive and fill container
-            const svg = el.querySelector("svg");
-            if (svg) {
-              svg.style.width = "100%";
-              svg.style.height = "100%";
-              svg.style.maxWidth = "none";
-              svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+              // Make SVG responsive and fill container
+              const svg = el.querySelector("svg");
+              if (svg) {
+                svg.style.width = "100%";
+                svg.style.height = "100%";
+                svg.style.maxWidth = "none";
+                svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+              }
+            } catch (e: any) {
+              if (cancelled) return;
+              setError(e?.message ?? "Failed to render diagram");
             }
           };
-          render();
-        } catch (e: any) {
-          setError(e?.message ?? "Failed to render diagram");
-        }
+
+          void render();
+        });
+
+        return () => {
+          cancelled = true;
+          cancelAnimationFrame(frameId);
+        };
       }, [code, isEditing, renderedId, theme]);
 
       const handleResizeStart = (e: React.MouseEvent) => {

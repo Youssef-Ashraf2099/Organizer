@@ -5,6 +5,12 @@ import { FaPalette } from "@react-icons/all-files/fa/FaPalette";
 
 const CURSOR_OPTIONS: { id: CursorStyle; name: string; description: string; color: string }[] = [
   { 
+    id: "default", 
+    name: "Native System", 
+    description: "Fastest response time. Uses your standard OS pointer.", 
+    color: "bg-zinc-800" 
+  },
+  { 
     id: "voxel", 
     name: "3D Voxel", 
     description: "Classic white extruded 3D pixel cursor.", 

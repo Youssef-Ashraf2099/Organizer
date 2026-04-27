@@ -236,7 +236,7 @@ impl OllamaClient {
             stream: true,
         };
 
-        let mut response = self
+        let response = self
             .client
             .post(format!("{}/api/chat", self.base_url))
             .json(&request)

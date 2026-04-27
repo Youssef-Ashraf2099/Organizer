@@ -1,0 +1,12 @@
+{
+  "name": "mcp-helper",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "capture": "node capture.js",
+    "capture-all": "node capture_all.js"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

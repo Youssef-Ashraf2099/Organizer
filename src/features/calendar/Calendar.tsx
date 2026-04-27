@@ -467,7 +467,7 @@ export const Calendar = () => {
       </div>
 
       {/* Calendar Grid */}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 p-3">
         <div className="grid grid-cols-7 gap-1.5 mb-1.5">
           {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
             <div

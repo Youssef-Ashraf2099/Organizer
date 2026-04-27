@@ -4,9 +4,19 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 100%;
   }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #09090b;
+    color: #fafafa;
+    width: 100%;
+    height: 100%;
+  }
+
 
   /* Scrollbar Styling */
   ::-webkit-scrollbar {
@@ -30,7 +40,7 @@
   }
 
   /* Firefox Scrollbar */
-  * {
+  html, body {
     scrollbar-color: #3f3f46 #18181b;
     scrollbar-width: thin;
   }
@@ -103,8 +113,8 @@
     overflow-y: auto !important;
   }
 
-  /* Custom Cursor - We hide the default and let React handle it */
-  html, body, * {
+  /* Custom Cursor - only hide when body has custom-cursor class */
+  body.custom-cursor, body.custom-cursor * {
     cursor: none !important;
   }
 
@@ -187,15 +197,12 @@
     margin: 0.55em 0;
   }
 
-  /* Remove paragraph margins inside list items — the margins push
-     the text away from the bullet/number marker creating a gap */
+  /* Remove paragraph margins inside list items */
   .bn-block-content[data-content-type="bulletListItem"] p,
   .bn-block-content[data-content-type="numberedListItem"] p,
   .bn-block-content[data-content-type="checkListItem"] p {
     margin: 0 !important;
   }
-
-
 
   .bn-editor blockquote {
     border-left: 3px solid rgba(148, 163, 184, 0.45);
@@ -220,160 +227,49 @@
 
   /* Print Styling for PDF Export */
   @media print {
-    /* Hide sidebar, headers, and UI controls */
-    aside,
-    nav,
-    button,
-    input[type="text"] {
+    aside, nav, button, input[type="text"] {
       display: none !important;
       visibility: hidden !important;
     }
-
-    /* Reset background for paper printing */
-    body,
-    #root,
-    .h-full,
-    .flex {
+    body, #root, .h-full, .flex {
       background-color: #ffffff !important;
       color: #000000 !important;
       height: auto !important;
       overflow: visible !important;
       display: block !important;
     }
-
-    /* Target the editor content */
     .bn-editor {
       padding: 0 !important;
       margin: 0 !important;
       color: #000000 !important;
     }
-
-    /* Ensure dark text on white paper */
     .bn-block-content {
       color: #000000 !important;
     }
-
-    /* Hide the parent layout flex containers which might restrict height */
     div[class*="flex"] {
       display: block !important;
     }
-
-    /* Specifically hide the Sidebar container if it has a specific class or check structure... 
-       Actually, standard 'aside' might not catch my div sidebar. 
-       I will check Sidebar.tsx to ensure it can be targeted or assume layout structure.
-       Better: Add a 'no-print' class to sidebar container. 
-    */
     .no-print {
       display: none !important;
     }
-
-    .print-only {
-      display: block !important;
-    }
   }
-
-  html,
-  body,
-  #root {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-  }
-
-  /* Also optional: unify side menu colors if needed */
 }
 
-/* ========================================================== */
-/* AI Animation Suite – OUTSIDE @layer base for full priority */
-/* ========================================================== */
 
-/* 1. Slide-In for newly inserted blocks */
+/* AI Animation Suite */
 @keyframes slideInUp {
-  0% {
-    opacity: 0;
-    transform: translateY(18px) scale(0.97);
-    filter: blur(2px);
-  }
-  60% {
-    opacity: 1;
-    filter: blur(0);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
-  }
+  0% { opacity: 0; transform: translateY(18px) scale(0.97); filter: blur(2px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
+.ai-block-insert { animation: slideInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both !important; }
 
-.ai-block-insert {
-  animation: slideInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both !important;
-}
-
-/* 2. Edit Highlight — blue tint that fades out */
 @keyframes highlightFade {
-  0% {
-    background-color: rgba(59, 130, 246, 0.22);
-    box-shadow:
-      inset 0 0 0 1.5px rgba(59, 130, 246, 0.35),
-      0 0 12px rgba(59, 130, 246, 0.1);
-  }
-  50% {
-    background-color: rgba(59, 130, 246, 0.08);
-    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.15);
-  }
-  100% {
-    background-color: transparent;
-    box-shadow: none;
-  }
+  0% { background-color: rgba(59, 130, 246, 0.22); box-shadow: inset 0 0 0 1.5px rgba(59, 130, 246, 0.35), 0 0 12px rgba(59, 130, 246, 0.1); }
+  50% { background-color: rgba(59, 130, 246, 0.08); box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.15); }
+  100% { background-color: transparent; box-shadow: none; }
 }
-
-.ai-edit-highlight {
-  border-radius: 6px !important;
-  animation: highlightFade 3s ease-out forwards !important;
-}
-
-/* 3. Replace cross-fade in */
-@keyframes replaceIn {
-  0% {
-    opacity: 0;
-    transform: translateX(12px);
-    filter: blur(2px);
-  }
-  60% {
-    opacity: 1;
-    filter: blur(0);
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(0);
-    filter: blur(0);
-  }
-}
-
-.ai-replace-in {
-  animation: replaceIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both !important;
-}
-
-/* 4. Skeleton loading (while AI is thinking) */
-@keyframes skeletonLoading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-.ai-skeleton {
-  background: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%);
-  background-size: 200% 100%;
-  animation: skeletonLoading 1.5s infinite !important;
-  border-radius: 4px;
-  height: 1.2em;
-  margin-bottom: 0.5em;
-  opacity: 0.5;
-}
+.ai-edit-highlight { border-radius: 6px !important; animation: highlightFade 3s ease-out forwards !important; }
 
 /* Premium Glassmorphism & Aesthetics */
 .glass-panel {
@@ -392,9 +288,5 @@
 }
 
 .premium-gradient-bg {
-  background: linear-gradient(
-    135deg,
-    rgba(96, 165, 250, 0.1) 0%,
-    rgba(168, 85, 247, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
 }

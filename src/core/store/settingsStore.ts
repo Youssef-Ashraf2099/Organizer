@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type CursorStyle = "default" | "classic" | "voxel" | "neon" | "glitch" | "crystal";
+export type CursorStyle =
+  | "default"
+  | "classic"
+  | "voxel"
+  | "neon"
+  | "glitch"
+  | "crystal"
+  | "circle";
 
 interface SettingsState {
   cursorStyle: CursorStyle;
@@ -11,11 +18,11 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      cursorStyle: "voxel", // Defaulting to the cool 3D one we just made
+      cursorStyle: "default", // Defaulting to the native OS cursor for better precision
       setCursorStyle: (style) => set({ cursorStyle: style }),
     }),
     {
       name: "omni-settings-storage",
-    }
-  )
+    },
+  ),
 );

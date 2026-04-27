@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "framer-motion";
 import {
   useEffect,
   useMemo,
@@ -6,8 +7,6 @@ import {
   type ChangeEvent,
   type PointerEvent,
 } from "react";
-import mermaid from "mermaid";
-import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { FaProjectDiagram } from "@react-icons/all-files/fa/FaProjectDiagram";
 import { FaDownload } from "@react-icons/all-files/fa/FaDownload";
@@ -23,6 +22,12 @@ import { FaFolderOpen } from "@react-icons/all-files/fa/FaFolderOpen";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { useDiagramStore } from "../../core/store/diagramStore";
 import type { DiagramSourceType } from "../../core/services/diagramService";
+import {
+  buildDiagramExportName,
+  normalizeSvgMarkup,
+  renderMermaidMarkup,
+  svgMarkupToImage,
+} from "../editor/diagramRenderUtils";
 
 type DiagramThemePreset = "hc-dark" | "hc-light";
 
@@ -228,42 +233,24 @@ const clamp = (value: number, min: number, max: number) =>
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 12;
 
-const normalizeSvgForViewport = (markup: string) => {
-  try {
-    const parser = new DOMParser();
-    const document = parser.parseFromString(markup, "image/svg+xml");
-    const svg = document.querySelector("svg");
-    if (!svg) return markup;
+type ToastVariant = "success" | "error" | "info";
 
-    const width = Number.parseFloat(svg.getAttribute("width") || "");
-    const height = Number.parseFloat(svg.getAttribute("height") || "");
-    const hasViewBox = Boolean(svg.getAttribute("viewBox"));
+type ToastState = {
+  title: string;
+  message: string;
+  variant: ToastVariant;
+} | null;
 
-    if (
-      !hasViewBox &&
-      Number.isFinite(width) &&
-      Number.isFinite(height) &&
-      width > 0 &&
-      height > 0
-    ) {
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    }
-
-    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    svg.setAttribute("shape-rendering", "geometricPrecision");
-    svg.setAttribute("text-rendering", "geometricPrecision");
-    svg.setAttribute("vector-effect", "non-scaling-stroke");
-
-    const style = svg.getAttribute("style") || "";
-    svg.setAttribute(
-      "style",
-      `${style}; max-width: none; image-rendering: auto; -webkit-font-smoothing: antialiased;`,
-    );
-
-    return new XMLSerializer().serializeToString(svg);
-  } catch {
-    return markup;
+const getToastClasses = (variant: ToastVariant) => {
+  if (variant === "success") {
+    return "border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-teal-500/15 to-cyan-500/15 text-emerald-50 shadow-emerald-900/30";
   }
+
+  if (variant === "error") {
+    return "border-rose-400/30 bg-gradient-to-br from-rose-500/20 via-red-500/15 to-orange-500/15 text-rose-50 shadow-rose-900/30";
+  }
+
+  return "border-sky-400/30 bg-gradient-to-br from-sky-500/20 via-cyan-500/15 to-blue-500/15 text-sky-50 shadow-sky-900/30";
 };
 
 export const DiagramStudio = () => {
@@ -303,10 +290,27 @@ export const DiagramStudio = () => {
   const [isPanning, setIsPanning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showTemplatesDropdown, setShowTemplatesDropdown] = useState(false);
+  const [toast, setToast] = useState<ToastState>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const svgInputRef = useRef<HTMLInputElement>(null);
+
+  const activeDiagramTitle =
+    draftName.trim() ||
+    activeDiagram?.name ||
+    DEFAULT_TEMPLATE.label ||
+    "diagram";
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const showToast = (variant: ToastVariant, title: string, message: string) => {
+    setToast({ variant, title, message });
+  };
 
   const activeSvgMarkup =
     draftSourceType === "svg"
@@ -368,10 +372,15 @@ export const DiagramStudio = () => {
       const markup = draftSvgMarkup || activeDiagram?.svgMarkup || "";
       if (!markup) {
         setError("No SVG markup is available for this diagram.");
+        showToast(
+          "error",
+          "Export unavailable",
+          "No SVG markup is available for this diagram.",
+        );
         return;
       }
 
-      setSvgMarkup(normalizeSvgForViewport(markup));
+      setSvgMarkup(normalizeSvgMarkup(markup, 24));
       return;
     }
 
@@ -379,18 +388,21 @@ export const DiagramStudio = () => {
     setError(null);
 
     try {
-      const preset = THEME_PRESETS[draftThemePreset];
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: "loose",
-        ...preset.mermaid,
-      });
-
       const renderId = `diagram-studio-${Date.now()}`;
-      const result = await mermaid.render(renderId, nextCode);
-      setSvgMarkup(normalizeSvgForViewport(result.svg));
+      const result = await renderMermaidMarkup({
+        code: nextCode,
+        theme: draftThemePreset,
+        renderId,
+        padding: 28,
+      });
+      setSvgMarkup(result);
     } catch (e: any) {
       setError(e?.message ?? "Failed to render diagram");
+      showToast(
+        "error",
+        "Render failed",
+        e?.message ?? "Failed to render diagram",
+      );
     } finally {
       setIsRendering(false);
     }
@@ -428,12 +440,22 @@ export const DiagramStudio = () => {
 
       setError(null);
       setDraftSourceType("svg");
-      const normalized = normalizeSvgForViewport(text);
+      const normalized = normalizeSvgMarkup(text, 24);
       setDraftSvgMarkup(normalized);
       setSvgMarkup(normalized);
       setDraftName(file.name.replace(/\.svg$/i, "") || "Imported Diagram");
+      showToast(
+        "success",
+        "SVG imported",
+        `${file.name} is ready to edit and export.`,
+      );
     } catch {
       setError("Failed to load SVG file.");
+      showToast(
+        "error",
+        "Import failed",
+        "The selected SVG file could not be loaded.",
+      );
     } finally {
       event.target.value = "";
     }
@@ -469,8 +491,20 @@ export const DiagramStudio = () => {
         await createDiagram(payload);
       }
       setError(null);
+      showToast(
+        "success",
+        "Diagram saved",
+        `${diagramName} was saved successfully.`,
+      );
     } catch (saveError) {
       setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Failed to save diagram",
+      );
+      showToast(
+        "error",
+        "Save failed",
         saveError instanceof Error
           ? saveError.message
           : "Failed to save diagram",
@@ -479,7 +513,14 @@ export const DiagramStudio = () => {
   };
 
   const exportSvg = () => {
-    if (!activeSvgMarkup) return;
+    if (!activeSvgMarkup) {
+      showToast(
+        "error",
+        "Export unavailable",
+        "Render a diagram before exporting SVG.",
+      );
+      return;
+    }
 
     const blob = new Blob([activeSvgMarkup], {
       type: "image/svg+xml;charset=utf-8",
@@ -487,44 +528,96 @@ export const DiagramStudio = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${(draftName || activeTemplate.key).replace(/\s+/g, "-")}-${Date.now()}.svg`;
+    link.download = buildDiagramExportName(activeDiagramTitle, "svg");
     link.click();
     URL.revokeObjectURL(url);
+    showToast(
+      "success",
+      "SVG exported",
+      `${activeDiagramTitle}.svg was generated.`,
+    );
   };
 
   const exportPdf = async () => {
-    if (!previewRef.current) return;
+    if (!activeSvgMarkup) {
+      showToast(
+        "error",
+        "Export unavailable",
+        "Render a diagram before exporting PDF.",
+      );
+      return;
+    }
 
-    const canvas = await html2canvas(previewRef.current, {
-      scale: 2,
-      backgroundColor: draftThemePreset === "hc-dark" ? "#020617" : "#ffffff",
-      useCORS: true,
-    });
+    try {
+      const backgroundColor =
+        draftThemePreset === "hc-dark" ? "#020617" : "#ffffff";
+      const exportMarkup = normalizeSvgMarkup(activeSvgMarkup, 64);
+      const image = await svgMarkupToImage(exportMarkup);
 
-    const imageData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF({
-      orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
-      unit: "pt",
-      format: "a4",
-    });
+      const naturalWidth = Math.max(
+        1,
+        image.naturalWidth || image.width || 1200,
+      );
+      const naturalHeight = Math.max(
+        1,
+        image.naturalHeight || image.height || 800,
+      );
+      const canvas = document.createElement("canvas");
+      const exportScale = 2;
+      canvas.width = naturalWidth * exportScale;
+      canvas.height = naturalHeight * exportScale;
 
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 24;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        showToast(
+          "error",
+          "Export failed",
+          "Could not prepare the PDF canvas.",
+        );
+        return;
+      }
 
-    const maxWidth = pageWidth - margin * 2;
-    const maxHeight = pageHeight - margin * 2;
+      context.fillStyle = backgroundColor;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-    const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
-    const drawWidth = canvas.width * ratio;
-    const drawHeight = canvas.height * ratio;
-    const x = (pageWidth - drawWidth) / 2;
-    const y = (pageHeight - drawHeight) / 2;
+      const imageData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+        unit: "pt",
+        format: "a4",
+      });
 
-    pdf.addImage(imageData, "PNG", x, y, drawWidth, drawHeight);
-    pdf.save(
-      `${(draftName || activeTemplate.key).replace(/\s+/g, "-")}-${Date.now()}.pdf`,
-    );
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 36;
+
+      const maxWidth = pageWidth - margin * 2;
+      const maxHeight = pageHeight - margin * 2;
+
+      const ratio = Math.min(
+        maxWidth / canvas.width,
+        maxHeight / canvas.height,
+      );
+      const drawWidth = canvas.width * ratio;
+      const drawHeight = canvas.height * ratio;
+      const x = (pageWidth - drawWidth) / 2;
+      const y = (pageHeight - drawHeight) / 2;
+
+      pdf.addImage(imageData, "PNG", x, y, drawWidth, drawHeight);
+      pdf.save(buildDiagramExportName(activeDiagramTitle, "pdf"));
+      showToast(
+        "success",
+        "PDF exported",
+        `${activeDiagramTitle}.pdf was generated.`,
+      );
+    } catch (error) {
+      showToast(
+        "error",
+        "PDF export failed",
+        error instanceof Error ? error.message : "Failed to export PDF.",
+      );
+    }
   };
 
   const zoom = (direction: 1 | -1) => {
@@ -599,6 +692,49 @@ export const DiagramStudio = () => {
 
   return (
     <div className="h-full flex flex-col bg-zinc-950 text-zinc-100">
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.98 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="fixed top-5 right-5 z-[80] pointer-events-none"
+          >
+            <div
+              className={`pointer-events-auto w-[340px] rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-xl ${getToastClasses(toast.variant)}`}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={`mt-0.5 flex h-10 w-10 items-center justify-center rounded-xl border ${
+                    toast.variant === "success"
+                      ? "border-emerald-300/30 bg-emerald-400/20"
+                      : toast.variant === "error"
+                        ? "border-rose-300/30 bg-rose-400/20"
+                        : "border-sky-300/30 bg-sky-400/20"
+                  }`}
+                >
+                  <FaSave size={14} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold">{toast.title}</div>
+                  <div className="mt-1 text-xs leading-5 opacity-90">
+                    {toast.message}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setToast(null)}
+                  className="pointer-events-auto rounded-lg px-2 py-1 text-xs opacity-70 transition hover:opacity-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="px-5 py-4 border-b border-zinc-800 bg-zinc-900/70">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -678,7 +814,7 @@ export const DiagramStudio = () => {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 min-h-0 p-4 space-y-4">
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 text-sm text-zinc-300">
@@ -735,7 +871,9 @@ export const DiagramStudio = () => {
 
               <div className="relative">
                 <button
-                  onClick={() => setShowTemplatesDropdown(!showTemplatesDropdown)}
+                  onClick={() =>
+                    setShowTemplatesDropdown(!showTemplatesDropdown)
+                  }
                   className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm font-medium hover:border-zinc-500 transition-colors"
                 >
                   <span className="flex items-center gap-2">
@@ -745,7 +883,7 @@ export const DiagramStudio = () => {
                     {showTemplatesDropdown ? "▲" : "▼"}
                   </span>
                 </button>
-                
+
                 {showTemplatesDropdown && (
                   <div className="absolute z-10 w-full mt-2 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl overflow-hidden">
                     <div className="max-h-[300px] overflow-y-auto">
@@ -819,7 +957,7 @@ export const DiagramStudio = () => {
 
               <div
                 ref={previewRef}
-                className={`relative overflow-hidden rounded-2xl border min-h-[640px] ${THEME_PRESETS[draftThemePreset].containerClass}`}
+                className={`relative overflow-hidden rounded-2xl border min-h-[640px] shadow-[0_20px_80px_rgba(0,0,0,0.35)] ${THEME_PRESETS[draftThemePreset].containerClass}`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={stopPanning}
@@ -838,7 +976,7 @@ export const DiagramStudio = () => {
 
                   {!error && activeSvgMarkup ? (
                     <div
-                      className="absolute left-1/2 top-1/2 select-none"
+                      className="absolute left-1/2 top-1/2 select-none drop-shadow-[0_24px_48px_rgba(0,0,0,0.35)]"
                       style={{
                         transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
                         transformOrigin: "center center",

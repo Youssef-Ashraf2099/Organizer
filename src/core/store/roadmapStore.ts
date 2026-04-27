@@ -37,9 +37,9 @@ export const useRoadmapStore = create<RoadmapState>()(
           tasks: [
             ...state.tasks,
             {
-              priority: "normal",
-              status: "pending",
               ...task,
+              priority: task.priority ?? "normal",
+              status: task.status ?? "pending",
               id,
             },
           ],
@@ -48,7 +48,9 @@ export const useRoadmapStore = create<RoadmapState>()(
       },
       updateTask: (id, updates) =>
         set((state) => ({
-          tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+          tasks: state.tasks.map((t) =>
+            t.id === id ? { ...t, ...updates } : t,
+          ),
         })),
       deleteTask: (id) =>
         set((state) => ({
@@ -56,20 +58,23 @@ export const useRoadmapStore = create<RoadmapState>()(
         })),
       moveTask: (id, newDate) =>
         set((state) => ({
-          tasks: state.tasks.map((t) => (t.id === id ? { ...t, date: newDate } : t)),
+          tasks: state.tasks.map((t) =>
+            t.id === id ? { ...t, date: newDate } : t,
+          ),
         })),
       toggleStatus: (id) =>
         set((state) => ({
           tasks: state.tasks.map((t) => {
             if (t.id !== id) return t;
             const currentIndex = STATUS_CYCLE.indexOf(t.status ?? "pending");
-            const nextStatus = STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
+            const nextStatus =
+              STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
             return { ...t, status: nextStatus };
           }),
         })),
     }),
     {
       name: "omni-roadmap-storage",
-    }
-  )
+    },
+  ),
 );

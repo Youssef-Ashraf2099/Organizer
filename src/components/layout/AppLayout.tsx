@@ -25,7 +25,6 @@ import { AIChat } from "../../features/ai/AIChat";
 import { WeeklyRoadmap } from "../../features/roadmap/WeeklyRoadmap";
 import { BudgetTracker } from "../../features/budget/BudgetTracker";
 import { DiagramStudio } from "../../features/diagrams/DiagramStudio";
-import { Settings } from "../../features/settings/Settings";
 import { FaMapSigns } from "@react-icons/all-files/fa/FaMapSigns";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -52,7 +51,6 @@ type RightPanelView =
   | "diagrams"
   | "objective"
   | "roadmap"
-  | "settings"
   | "aichat";
 
 type TodoColumn = "backlog" | "todo" | "inprogress" | "done";
@@ -134,6 +132,8 @@ export const AppLayout = () => {
     return getTodayObjectiveStats(todayObjectives);
   }, [objectives]);
   const startupMarkdownHandledRef = useRef(false);
+  const showPageSidebar =
+    rightPanelView === "editor" || rightPanelView === "diagrams";
 
   // Start notification service on mount
   useEffect(() => {
@@ -217,7 +217,9 @@ export const AppLayout = () => {
       if (!isTauriRuntime()) return;
 
       try {
-        const startupFiles = await invoke<string[]>("get_launch_markdown_files");
+        const startupFiles = await invoke<string[]>(
+          "get_launch_markdown_files",
+        );
         if (!Array.isArray(startupFiles) || startupFiles.length === 0) return;
 
         const db = await Database.load(DB_URL);
@@ -306,44 +308,51 @@ export const AppLayout = () => {
     };
   }, [resize, stopResizing]);
 
-  const showSidebar = rightPanelView === "editor" || rightPanelView === "diagrams";
-
   return (
     <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-hidden">
-      <AnimatePresence initial={false}>
-        {showSidebar && (
-          <>
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: sidebarWidth, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="flex-shrink-0 flex flex-col h-full overflow-hidden no-print"
-            >
-              <Sidebar view={rightPanelView} />
-            </motion.aside>
+      <AnimatePresence initial={false} mode="popLayout">
+        {showPageSidebar && (
+          <motion.aside
+            key="page-sidebar"
+            layout
+            initial={{ opacity: 0, x: -18, width: 0 }}
+            animate={{ opacity: 1, x: 0, width: sidebarWidth }}
+            exit={{ opacity: 0, x: -18, width: 0 }}
+            transition={{ duration: 0.22, ease: "easeInOut" }}
+            className="flex-shrink-0 flex flex-col h-full overflow-hidden no-print"
+          >
+            <Sidebar view={rightPanelView} />
+          </motion.aside>
+        )}
 
-            {/* Resizer Handle */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onMouseDown={startResizing}
-              className={cn(
-                "w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50 no-print",
-                isDragging.current ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-800",
-              )}
-            />
-          </>
+        {showPageSidebar && (
+          <motion.div
+            key="sidebar-resizer"
+            layout
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeInOut" }}
+            onMouseDown={startResizing}
+            className={cn(
+              "w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-50 no-print",
+              isDragging.current
+                ? "bg-blue-500"
+                : "bg-zinc-200 dark:bg-zinc-800",
+            )}
+          />
         )}
       </AnimatePresence>
 
       {/* Right Panel with Tabs */}
-      <div className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative">
+      <motion.div
+        layout
+        transition={{ duration: 0.22, ease: "easeInOut" }}
+        className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative"
+      >
         {/* Tab Buttons at Top */}
-        <div className="relative z-50 flex items-center justify-between border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
-          <div className="flex flex-1 gap-1 px-2 py-2 overflow-x-auto min-w-0 custom-scrollbar">
+        <div className="flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
+          <div className="flex flex-1 gap-1 px-2 py-2 overflow-x-auto">
             <button
               onClick={() => setRightPanelView("editor")}
               className={cn(
@@ -500,29 +509,16 @@ export const AppLayout = () => {
             </div>
           )}
 
-            <button
-              onClick={() => setRightPanelView("settings")}
-              className={cn(
-                "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
-                rightPanelView === "settings"
-                  ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
-              )}
-            >
-              <FaProjectDiagram size={14} className="rotate-90" />
-              Settings
-            </button>
-          </div>
-
           {/* Notification Bell */}
           <div className="relative px-3">
             <NotificationBell />
             <NotificationInbox />
           </div>
+        </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto relative">
-          <AnimatePresence mode="wait">
+        <div className="flex-1 overflow-y-scroll relative bg-white dark:bg-zinc-950">
+          <AnimatePresence mode="popLayout">
             <motion.div
               key={rightPanelView}
               initial={{ opacity: 0, y: 10 }}
@@ -540,7 +536,6 @@ export const AppLayout = () => {
               {rightPanelView === "diagrams" && <DiagramStudio />}
               {rightPanelView === "roadmap" && <WeeklyRoadmap />}
               {rightPanelView === "objective" && <TodayObjective />}
-              {rightPanelView === "settings" && <Settings />}
               {rightPanelView === "aichat" && <AIChat />}
             </motion.div>
           </AnimatePresence>
@@ -574,7 +569,7 @@ export const AppLayout = () => {
             </span>
           </button>
         )}
-      </div>
+      </motion.div>
 
       {/* AI Agent Panel */}
       <AgentPanel
@@ -602,4 +597,3 @@ export const AppLayout = () => {
     </div>
   );
 };
-

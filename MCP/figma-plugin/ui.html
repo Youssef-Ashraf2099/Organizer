@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Import Organizer Screenshots</title>
+    <style>
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        padding: 12px;
+      }
+      button {
+        margin-top: 10px;
+        padding: 8px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Import Organizer Screenshots</h3>
+    <p>Select the screenshots saved by the MCP capture script.</p>
+    <input id="files" type="file" accept="image/*" multiple />
+    <div>
+      <button id="import">Import Selected Images</button>
+      <span id="selectedCount" style="margin-left: 12px; color: #666"></span>
+    </div>
+
+    <div id="status" style="margin-top: 10px; color: #333"></div>
+
+    <script>
+      const input = document.getElementById("files");
+      const btn = document.getElementById("import");
+      const countEl = document.getElementById("selectedCount");
+      const status = document.getElementById("status");
+
+      input.addEventListener("change", () => {
+        const files = Array.from(input.files || []);
+        countEl.textContent = files.length ? `${files.length} selected` : "";
+        status.textContent = "";
+      });
+
+      btn.onclick = async () => {
+        const files = Array.from(input.files || []);
+        if (files.length === 0) {
+          status.textContent = "Please choose one or more images first.";
+          return;
+        }
+
+        status.textContent = "Preparing images...";
+
+        const processed = await Promise.all(
+          files.map((f) => {
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const dataUrl = reader.result;
+                const parts = String(dataUrl).split(",");
+                const base64 = parts.length > 1 ? parts[1] : "";
+                resolve({ name: f.name, data: base64, size: f.size });
+              };
+              reader.onerror = () =>
+                resolve({ name: f.name, data: "", size: f.size });
+              reader.readAsDataURL(f);
+            });
+          }),
+        );
+
+        parent.postMessage(
+          { pluginMessage: { type: "import-images", files: processed } },
+          "*",
+        );
+      };
+
+      // Listen for messages back from plugin
+      window.onmessage = (event) => {
+        const msg =
+          event.data && event.data.pluginMessage
+            ? event.data.pluginMessage
+            : event.data;
+        if (!msg) return;
+        if (msg.type === "no-files") {
+          status.textContent =
+            "No files received by plugin. Try again or open the console for details.";
+        } else if (msg.type === "imported") {
+          status.textContent = `Imported ${msg.count} image(s) into Figma.`;
+          if (msg.errors && msg.errors.length > 0) {
+            const list = msg.errors
+              .map((e) => `${e.name}: ${e.message}`)
+              .join("\n");
+            const pre = document.createElement("pre");
+            pre.style.background = "#f7f7f7";
+            pre.style.padding = "8px";
+            pre.style.borderRadius = "6px";
+            pre.style.marginTop = "8px";
+            pre.textContent = `Some files reported warnings:\n${list}`;
+            status.appendChild(pre);
+          }
+        } else if (msg.type === "import-failed") {
+          const errs = msg.errors && msg.errors.length ? msg.errors : [];
+          status.textContent = `Import failed: ${errs.length} error(s). See details below.`;
+          if (errs.length > 0) {
+            const pre = document.createElement("pre");
+            pre.style.background = "#fee";
+            pre.style.padding = "8px";
+            pre.style.borderRadius = "6px";
+            pre.style.marginTop = "8px";
+            pre.textContent = errs
+              .map((e) => `${e.name}: ${e.message}`)
+              .join("\n");
+            status.appendChild(pre);
+          }
+        }
+      };
+    </script>
+  </body>
+</html>

@@ -536,7 +536,7 @@ export const TodayObjective = () => {
       </div>
 
       {/* Objectives List with Form */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 p-6">
         {activeTab === "today" ? (
           <div className="space-y-6">
             {/* Add Task Button (Visible when form is hidden) */}

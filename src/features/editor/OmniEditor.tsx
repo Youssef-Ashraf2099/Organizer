@@ -26,7 +26,7 @@ import { AudioBlock } from "./AudioBlock";
 import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
 import { aiAnimator } from "../ai/aiEditorAnimations";
 import { aiService } from "../ai/aiService";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
 import { FaVideo } from "@react-icons/all-files/fa/FaVideo";
@@ -174,6 +174,11 @@ export const OmniEditor = ({
   const [imageUrl, setImageUrl] = useState("");
   const [showCoverPicker, setShowCoverPicker] = useState(false);
   const [coverUrlInput, setCoverUrlInput] = useState("");
+  const [exportToast, setExportToast] = useState<{
+    title: string;
+    message: string;
+    variant: "success" | "error";
+  } | null>(null);
 
   const dragOverlayRef = useRef<HTMLDivElement>(null);
   const markdownImportInputRef = useRef<HTMLInputElement>(null);
@@ -181,6 +186,20 @@ export const OmniEditor = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isMagicRunning, setIsMagicRunning] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!exportToast) return;
+    const timer = window.setTimeout(() => setExportToast(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [exportToast]);
+
+  const showExportToast = (
+    variant: "success" | "error",
+    title: string,
+    message: string,
+  ) => {
+    setExportToast({ variant, title, message });
+  };
 
   const saveToDb = useCallback(
     async (content: PartialBlock[], pageId: string) => {
@@ -636,38 +655,34 @@ export const OmniEditor = ({
     }
   };
 
-  const applyParsedMarkdown = async (markdown: string) => {
+  const applyParsedMarkdown = (markdown: string) => {
     if (!editor || !activePageId) return;
 
-    try {
-      const parsedBlocks = await editor.tryParseMarkdownToBlocks(markdown);
-      
-      const existingBlockIds = editor.document.map((block) => block.id);
-      if (existingBlockIds.length > 0) {
-        editor.replaceBlocks(existingBlockIds, parsedBlocks);
-      } else {
-        editor.insertBlocks(parsedBlocks, editor.document[0], "after");
-      }
+    const parsedBlocks = markdownToBlocks(markdown);
+    const nextBlocks: PartialBlock[] =
+      parsedBlocks.length > 0
+        ? parsedBlocks
+        : [
+            {
+              type: "paragraph",
+              content: markdown.trim() || "",
+            } as any,
+          ];
 
-      debouncedSave(editor.document, activePageId);
-    } catch (error) {
-      console.error("Native parse failed, falling back to custom parser", error);
-      // Fallback
-      const parsedBlocks = markdownToBlocks(markdown);
-      const nextBlocks: PartialBlock[] =
-        parsedBlocks.length > 0
-          ? parsedBlocks
-          : [
-              {
-                type: "paragraph",
-                content: markdown.trim() || "",
-              } as any,
-            ];
-
-      const existingBlockIds = editor.document.map((block) => block.id);
-      editor.replaceBlocks(existingBlockIds, nextBlocks as any);
-      debouncedSave(editor.document, activePageId);
+    const existingBlockIds = editor.document.map((block) => block.id);
+    if (existingBlockIds.length > 0) {
+      editor.removeBlocks(existingBlockIds);
     }
+
+    const anchor = editor.document[0];
+    if (anchor) {
+      editor.updateBlock(anchor, nextBlocks[0] as any);
+      if (nextBlocks.length > 1) {
+        editor.insertBlocks(nextBlocks.slice(1), anchor, "after");
+      }
+    }
+
+    debouncedSave(editor.document, activePageId);
   };
 
   const handleImportMarkdownFile = async (
@@ -886,24 +901,56 @@ export const OmniEditor = ({
       const previousStyles = {
         color: root.style.color,
         backgroundColor: root.style.backgroundColor,
+        width: root.style.width,
+        maxWidth: root.style.maxWidth,
+        margin: root.style.margin,
+        padding: root.style.padding,
       };
 
       root.style.color = "#111111";
       root.style.backgroundColor = "#ffffff";
       root.classList.add("export-to-pdf");
+      root.style.width = "100%";
+      root.style.maxWidth = "980px";
+      root.style.margin = "0 auto";
+      root.style.padding = "56px 64px 80px";
 
       const styleTag = document.createElement("style");
       styleTag.setAttribute("data-export-style", "true");
       styleTag.textContent = `
         .export-to-pdf, .export-to-pdf * {
           color: #111111 !important;
+          background-color: transparent !important;
         }
         .export-to-pdf pre, .export-to-pdf code {
           background: #f4f4f5 !important;
           color: #111111 !important;
+          border: 1px solid #e4e4e7 !important;
+          border-radius: 12px !important;
+          white-space: pre-wrap !important;
+          word-break: break-word !important;
         }
         .export-to-pdf table {
           color: #111111 !important;
+          border-collapse: collapse !important;
+        }
+        .export-to-pdf img,
+        .export-to-pdf svg,
+        .export-to-pdf canvas,
+        .export-to-pdf iframe {
+          max-width: 100% !important;
+        }
+        .export-to-pdf .bn-editor {
+          max-width: 760px !important;
+          margin: 0 auto !important;
+          padding: 0 !important;
+        }
+        .export-to-pdf .omni-page-shell {
+          max-width: 760px !important;
+          margin: 0 auto !important;
+        }
+        .export-to-pdf .omni-page-cover {
+          box-shadow: none !important;
         }
       `;
 
@@ -912,6 +959,10 @@ export const OmniEditor = ({
       return () => {
         root.style.color = previousStyles.color;
         root.style.backgroundColor = previousStyles.backgroundColor;
+        root.style.width = previousStyles.width;
+        root.style.maxWidth = previousStyles.maxWidth;
+        root.style.margin = previousStyles.margin;
+        root.style.padding = previousStyles.padding;
         root.classList.remove("export-to-pdf");
         styleTag.remove();
       };
@@ -977,44 +1028,85 @@ export const OmniEditor = ({
       restoreHiddenBlocks = hideEmptyBlocksForExport(editorElement);
 
       const canvas = await html2canvas(editorElement, {
-        scale: 2,
+        scale: 2.25,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff", // Ensure white background
-        windowWidth: editorElement.scrollWidth,
+        windowWidth: Math.max(editorElement.scrollWidth, 1100),
         windowHeight: editorElement.scrollHeight,
       });
 
-      const imgData = canvas.toDataURL("image/png");
-
-      // Calculate PDF dimensions (A4 reference)
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      // Create PDF
       const pdf = new jsPDF("p", "mm", "a4");
-      let heightLeft = imgHeight;
-      let position = 0;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 14;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2;
+      const renderedHeight = (canvas.height * contentWidth) / canvas.width;
+      const pageCount = Math.max(1, Math.ceil(renderedHeight / contentHeight));
 
-      // First page
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+        if (pageIndex > 0) pdf.addPage();
 
-      // Add extra pages if needed
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        const sourceY = Math.round(
+          (pageIndex * contentHeight * canvas.width) / contentWidth,
+        );
+        const sourceHeight = Math.min(
+          Math.round((contentHeight * canvas.width) / contentWidth),
+          canvas.height - sourceY,
+        );
+
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sourceHeight;
+
+        const pageContext = pageCanvas.getContext("2d");
+        if (!pageContext) continue;
+
+        pageContext.drawImage(
+          canvas,
+          0,
+          sourceY,
+          canvas.width,
+          sourceHeight,
+          0,
+          0,
+          canvas.width,
+          sourceHeight,
+        );
+
+        const pageImgData = pageCanvas.toDataURL("image/png");
+        const pageDrawHeight = (sourceHeight * contentWidth) / canvas.width;
+        pdf.addImage(
+          pageImgData,
+          "PNG",
+          margin,
+          margin,
+          contentWidth,
+          pageDrawHeight,
+        );
       }
 
       const pages = usePageStore.getState().pages;
       const title = activePageId ? pages[activePageId]?.title : "Document";
-      pdf.save(`${title}.pdf`);
+      const safeTitle =
+        title
+          .trim()
+          .replace(/[^a-z0-9]+/gi, "-")
+          .replace(/^-+|-+$/g, "") || "document";
+      pdf.save(`${safeTitle}.pdf`);
+      showExportToast(
+        "success",
+        "PDF exported",
+        `${title}.pdf was created successfully.`,
+      );
     } catch (error) {
       console.error("PDF export failed:", error);
-      alert("Failed to export PDF. See console for details.");
+      showExportToast(
+        "error",
+        "Export failed",
+        error instanceof Error ? error.message : "Failed to export PDF.",
+      );
     } finally {
       restoreExportStyles?.();
       restoreHiddenBlocks?.();
@@ -1106,7 +1198,7 @@ export const OmniEditor = ({
       initial={{ opacity: 0, scale: 0.98, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
-      className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950 px-4 py-6 relative"
+      className="w-full bg-white dark:bg-zinc-950 px-4 py-6 relative"
       style={{ scrollBehavior: "smooth" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -1114,6 +1206,47 @@ export const OmniEditor = ({
       onMouseLeave={handleMouseUp}
       onPaste={handlePaste}
     >
+      <AnimatePresence>
+        {exportToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.98 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="fixed top-5 right-5 z-[80] pointer-events-none"
+          >
+            <div
+              className={`pointer-events-auto w-[340px] rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-xl ${
+                exportToast.variant === "success"
+                  ? "border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-teal-500/15 to-cyan-500/15 text-emerald-50 shadow-emerald-900/30"
+                  : "border-rose-400/30 bg-gradient-to-br from-rose-500/20 via-red-500/15 to-orange-500/15 text-rose-50 shadow-rose-900/30"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-xl border border-white/15 bg-white/10">
+                  <FaPrint size={14} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold">
+                    {exportToast.title}
+                  </div>
+                  <div className="mt-1 text-xs leading-5 opacity-90">
+                    {exportToast.message}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExportToast(null)}
+                  className="pointer-events-auto rounded-lg px-2 py-1 text-xs opacity-70 transition hover:opacity-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="omni-page-shell space-y-5">
         {false && (
           <div
