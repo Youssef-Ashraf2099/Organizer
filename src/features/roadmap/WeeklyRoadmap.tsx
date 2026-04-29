@@ -155,7 +155,7 @@ export const WeeklyRoadmap = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-zinc-950">
+    <div className="roadmap-root h-full flex flex-col bg-zinc-950">
       {/* ── Tactical Header ───────────────────────────────────────── */}
       <div className="px-6 py-4 flex flex-col gap-4 border-b border-zinc-800 bg-zinc-900 shadow-sm relative z-10">
         

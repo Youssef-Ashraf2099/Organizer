@@ -430,7 +430,7 @@ export const Calendar = () => {
     : [];
 
   return (
-    <div className="h-full flex flex-col bg-zinc-950 text-zinc-100">
+    <div className="calendar-root h-full flex flex-col bg-zinc-950 text-zinc-100">
       {/* Header */}
       <div className="p-4 border-b border-zinc-800 flex flex-wrap gap-4 items-center justify-between bg-zinc-900/50">
         <h2 className="text-xl font-bold flex items-center gap-2">

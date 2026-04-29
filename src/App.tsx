@@ -17,6 +17,7 @@ function App() {
   }, []); // Empty dependency array to run only once on mount
 
   const cursorStyle = useSettingsStore((s) => s.cursorStyle);
+  const appTheme = useSettingsStore((s) => s.appTheme);
 
   useEffect(() => {
     if (cursorStyle !== "default") {
@@ -25,6 +26,23 @@ function App() {
       document.body.classList.remove("custom-cursor");
     }
   }, [cursorStyle]);
+
+  useEffect(() => {
+    const themeClasses = [
+      "theme-midnight",
+      "theme-notion-gray",
+      "theme-notion-dark",
+      "theme-white",
+      "theme-pink-blush",
+      "theme-ocean-mint",
+    ];
+
+    document.body.classList.remove(...themeClasses);
+    document.body.classList.add(`theme-${appTheme}`);
+
+    const isDarkTheme = appTheme === "midnight" || appTheme === "notion-dark";
+    document.documentElement.classList.toggle("dark", isDarkTheme);
+  }, [appTheme]);
 
   return (
     <>

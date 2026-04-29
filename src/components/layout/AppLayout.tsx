@@ -3,28 +3,25 @@ import { invoke } from "@tauri-apps/api/core";
 import Database from "@tauri-apps/plugin-sql";
 import { Sidebar } from "../../features/sidebar/Sidebar";
 import { OmniEditor } from "../../features/editor/OmniEditor";
-import { AgentPanel } from "../../features/ai/AgentPanel";
-import { useAgentPanel } from "../../features/ai/useAgentPanel";
 import { cn } from "../../lib/utils";
 import { usePageStore } from "../../core/store/pageStore";
-import { FaRobot } from "@react-icons/all-files/fa/FaRobot";
 import { FaListUl } from "@react-icons/all-files/fa/FaListUl";
 import { FaCalendarAlt } from "@react-icons/all-files/fa/FaCalendarAlt";
 import { FaBookOpen } from "@react-icons/all-files/fa/FaBookOpen";
-import { FaComments } from "@react-icons/all-files/fa/FaComments";
 import { FaCrosshairs } from "@react-icons/all-files/fa/FaCrosshairs";
 import { FaInbox } from "@react-icons/all-files/fa/FaInbox";
 import { FaSpinner } from "@react-icons/all-files/fa/FaSpinner";
 import { FaCheck } from "@react-icons/all-files/fa/FaCheck";
 import { FaWallet } from "@react-icons/all-files/fa/FaWallet";
+import { FaCog } from "@react-icons/all-files/fa/FaCog";
 import { FaProjectDiagram } from "@react-icons/all-files/fa/FaProjectDiagram";
 import { TodoList } from "../../features/todo/TodoList";
 import { TodayObjective } from "../../features/todo/TodayObjective";
 import { Calendar } from "../../features/calendar/Calendar";
-import { AIChat } from "../../features/ai/AIChat";
 import { WeeklyRoadmap } from "../../features/roadmap/WeeklyRoadmap";
 import { BudgetTracker } from "../../features/budget/BudgetTracker";
 import { DiagramStudio } from "../../features/diagrams/DiagramStudio";
+import { Settings } from "../../features/settings/Settings";
 import { FaMapSigns } from "@react-icons/all-files/fa/FaMapSigns";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -50,8 +47,8 @@ type RightPanelView =
   | "budget"
   | "diagrams"
   | "objective"
-  | "roadmap"
-  | "aichat";
+  | "settings"
+  | "roadmap";
 
 type TodoColumn = "backlog" | "todo" | "inprogress" | "done";
 type TodoCounts = Record<TodoColumn, number>;
@@ -108,19 +105,9 @@ export const AppLayout = () => {
   const [calendarNudge, setCalendarNudge] = useState(true);
   const [todoCounts, setTodoCounts] = useState<TodoCounts>(emptyTodoCounts);
   const isDragging = useRef(false);
-  const activePageId = usePageStore((s) => s.activePageId);
   const addPage = usePageStore((s) => s.addPage);
   const updatePageTitle = usePageStore((s) => s.updatePageTitle);
   const setActivePage = usePageStore((s) => s.setActivePage);
-  const {
-    state,
-    actions,
-    isOllamaRunning,
-    openPanel,
-    closePanel,
-    executeAction,
-    setSelectedText,
-  } = useAgentPanel();
 
   // Subscribe to raw objectives array to avoid infinite loop from selector returning new array ref
   const objectives = useObjectiveStore((s) => s.objectives);
@@ -309,7 +296,7 @@ export const AppLayout = () => {
   }, [resize, stopResizing]);
 
   return (
-    <div className="h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-hidden">
+    <div className="app-shell h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 flex overflow-hidden">
       <AnimatePresence initial={false} mode="popLayout">
         {showPageSidebar && (
           <motion.aside
@@ -351,7 +338,7 @@ export const AppLayout = () => {
         className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative"
       >
         {/* Tab Buttons at Top */}
-        <div className="flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
+        <div className="app-topbar flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
           <div className="flex flex-1 gap-1 px-2 py-2 overflow-x-auto">
             <button
               onClick={() => setRightPanelView("editor")}
@@ -480,16 +467,16 @@ export const AppLayout = () => {
               )}
             </button>
             <button
-              onClick={() => setRightPanelView("aichat")}
+              onClick={() => setRightPanelView("settings")}
               className={cn(
                 "px-4 py-2.5 text-sm font-medium transition flex items-center gap-2 rounded-xl whitespace-nowrap",
-                rightPanelView === "aichat"
+                rightPanelView === "settings"
                   ? "bg-white dark:bg-zinc-950 text-blue-600 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800"
                   : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80",
               )}
             >
-              <FaComments size={14} />
-              AI Chat
+              <FaCog size={14} />
+              Settings
             </button>
           </div>
 
@@ -517,7 +504,7 @@ export const AppLayout = () => {
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-scroll relative bg-white dark:bg-zinc-950">
+        <div className="app-content flex-1 overflow-y-scroll relative bg-white dark:bg-zinc-950">
           <AnimatePresence mode="popLayout">
             <motion.div
               key={rightPanelView}
@@ -536,64 +523,11 @@ export const AppLayout = () => {
               {rightPanelView === "diagrams" && <DiagramStudio />}
               {rightPanelView === "roadmap" && <WeeklyRoadmap />}
               {rightPanelView === "objective" && <TodayObjective />}
-              {rightPanelView === "aichat" && <AIChat />}
+              {rightPanelView === "settings" && <Settings />}
             </motion.div>
           </AnimatePresence>
         </div>
-
-        {/* Floating AI Button */}
-        {!state.isOpen && (
-          <button
-            onClick={() => {
-              const selectedText =
-                window.getSelection()?.toString().trim() || "";
-              openPanel(selectedText);
-            }}
-            className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-2xl hover:shadow-blue-500/50 hover:scale-110 transition-all duration-300 z-50 group no-print"
-            title="Open AI Assistant"
-          >
-            <FaRobot size={24} className="group-hover:animate-pulse" />
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span
-                className={cn(
-                  "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                  isOllamaRunning ? "bg-emerald-400" : "bg-amber-400",
-                )}
-              ></span>
-              <span
-                className={cn(
-                  "relative inline-flex rounded-full h-3 w-3",
-                  isOllamaRunning ? "bg-emerald-500" : "bg-amber-500",
-                )}
-              ></span>
-            </span>
-          </button>
-        )}
       </motion.div>
-
-      {/* AI Agent Panel */}
-      <AgentPanel
-        state={state}
-        actions={actions}
-        isOllamaRunning={isOllamaRunning}
-        onClose={closePanel}
-        onExecuteAction={(action, selectionOverride, pageContext) =>
-          executeAction(
-            activePageId || "current-page",
-            action,
-            selectionOverride,
-            pageContext,
-          )
-        }
-        onInsertResponse={(response) => {
-          // Trigger insertion in editor
-          const event = new CustomEvent("insertAIResponse", {
-            detail: { response },
-          });
-          window.dispatchEvent(event);
-        }}
-        setSelectedText={setSelectedText}
-      />
     </div>
   );
 };

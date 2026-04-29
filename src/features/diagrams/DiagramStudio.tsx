@@ -691,7 +691,7 @@ export const DiagramStudio = () => {
   const isSvgDiagram = draftSourceType === "svg";
 
   return (
-    <div className="h-full flex flex-col bg-zinc-950 text-zinc-100">
+    <div className="diagram-root h-full flex flex-col bg-zinc-950 text-zinc-100">
       <AnimatePresence>
         {toast && (
           <motion.div

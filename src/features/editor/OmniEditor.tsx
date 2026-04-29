@@ -24,8 +24,6 @@ import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
 import { AudioBlock } from "./AudioBlock";
 import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
-import { aiAnimator } from "../ai/aiEditorAnimations";
-import { aiService } from "../ai/aiService";
 import { AnimatePresence, motion } from "framer-motion";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
@@ -41,7 +39,6 @@ import { FaChevronDown } from "@react-icons/all-files/fa/FaChevronDown";
 import { FaPrint } from "@react-icons/all-files/fa/FaPrint";
 import { FaFileCode } from "@react-icons/all-files/fa/FaFileCode";
 import { FaHtml5 } from "@react-icons/all-files/fa/FaHtml5";
-import { FaMagic } from "@react-icons/all-files/fa/FaMagic";
 import {
   uploadFileFromPicker,
   uploadFileFromBytes,
@@ -145,20 +142,17 @@ const setWebPageContent = (pageId: string, content: PartialBlock[]) => {
 
 interface OmniEditorProps {
   onUpload?: (file: File) => Promise<string>;
-  onAISuggest?: (context: string) => Promise<string>;
   onSelectText?: (text: string) => void;
 }
 
 export const OmniEditor = ({
   onUpload,
-  onAISuggest,
   onSelectText,
 }: OmniEditorProps) => {
   useEffect(() => {
     if (onUpload) console.debug("Upload handler registered");
-    if (onAISuggest) console.debug("AI handler registered");
     if (onSelectText) console.debug("Text selection handler registered");
-  }, [onUpload, onAISuggest, onSelectText]);
+  }, [onUpload, onSelectText]);
 
   const activePageId = usePageStore((s) => s.activePageId);
   const currentPage = usePageStore((s) =>
@@ -184,7 +178,6 @@ export const OmniEditor = ({
   const markdownImportInputRef = useRef<HTMLInputElement>(null);
   const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isMagicRunning, setIsMagicRunning] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -301,299 +294,6 @@ export const OmniEditor = ({
     loadContent();
   }, [activePageId]);
 
-  useEffect(() => {
-    const handleGetPageContent = () => {
-      if (!editor) return;
-      try {
-        const blocks = editor.document;
-        const blockToMd = (block: any, depth = 0): string => {
-          const indent = "  ".repeat(depth);
-          const inlineText = (() => {
-            if (!block.content) return "";
-            if (typeof block.content === "string") return block.content;
-            if (Array.isArray(block.content)) {
-              return block.content
-                .map((c: any) => {
-                  let t = c.text || "";
-                  if (c.styles?.bold) t = `**${t}**`;
-                  if (c.styles?.italic) t = `*${t}*`;
-                  if (c.styles?.code) t = `\`${t}\``;
-                  return t;
-                })
-                .join("");
-            }
-            return "";
-          })();
-
-          let text = "";
-          switch (block.type) {
-            case "heading":
-              text =
-                indent +
-                "#".repeat(block.props?.level || 1) +
-                " " +
-                inlineText +
-                "\n";
-              break;
-            case "bulletListItem":
-            case "numberedListItem":
-              text = indent + "- " + inlineText + "\n";
-              break;
-            case "checkListItem":
-              text =
-                indent +
-                (block.props?.checked ? "- [x] " : "- [ ] ") +
-                inlineText +
-                "\n";
-              break;
-            case "image":
-              text =
-                indent +
-                `[Image: ${block.props?.caption || block.props?.url || "image"}]\n`;
-              break;
-            case "video":
-              text = indent + "[Video block]\n";
-              break;
-            case "audio":
-              text = indent + "[Audio block]\n";
-              break;
-            case "pdf":
-              text = indent + "[PDF block]\n";
-              break;
-            case "math":
-              text = indent + `$$${block.props?.latex || ""}$$\n`;
-              break;
-            case "mermaid":
-              text =
-                indent + "```mermaid\n" + (block.props?.code || "") + "\n```\n";
-              break;
-            case "chart":
-              text = indent + "[Chart block]\n";
-              break;
-            case "kanban":
-              text = indent + "[Kanban board]\n";
-              break;
-            default:
-              if (inlineText.trim()) text = indent + inlineText + "\n";
-          }
-
-          if (block.children && block.children.length > 0) {
-            block.children.forEach((child: any) => {
-              text += blockToMd(child, depth + 1);
-            });
-          }
-
-          return text;
-        };
-
-        let mdContent = "";
-        blocks.forEach((block: any) => {
-          const md = blockToMd(block);
-          if (md.trim()) mdContent += md + "\n";
-        });
-        (window as any).__currentPageContent = mdContent.trim();
-      } catch (e) {
-        console.error("Failed to extract page content:", e);
-      }
-    };
-
-    window.addEventListener("getPageContent", handleGetPageContent);
-    return () =>
-      window.removeEventListener("getPageContent", handleGetPageContent);
-  }, [editor]);
-
-  useEffect(() => {
-    const handleToolCommand = (event: Event) => {
-      setTimeout(() => {
-        const customEvent = event as CustomEvent<{
-          action: string;
-          params?: any;
-        }>;
-        const { action, params } = customEvent.detail;
-        if (!editor) return;
-
-        try {
-          if (!editor.document || editor.document.length === 0) return;
-        } catch {
-          return;
-        }
-
-        if (!action) return;
-        if (params?.content && typeof params.content !== "string") {
-          try {
-            params.content =
-              typeof params.content === "object"
-                ? JSON.stringify(params.content, null, 2)
-                : String(params.content);
-          } catch {
-            return;
-          }
-        }
-
-        const needsContent = [
-          "append_text",
-          "insert_text",
-          "replace_text",
-          "replace_all",
-        ].includes(action);
-        if (
-          needsContent &&
-          (!params?.content ||
-            (typeof params.content === "string" &&
-              params.content.trim().length === 0))
-        ) {
-          return;
-        }
-
-        const insertBlock = (type: string, props: any = {}) => {
-          try {
-            const cursor = editor.getTextCursorPosition();
-            const targetBlock =
-              cursor?.block || editor.document[editor.document.length - 1];
-            const currentBlockContent = (targetBlock?.content as any[]) || [];
-            const isEmpty =
-              currentBlockContent.length === 0 &&
-              !targetBlock?.children?.length;
-            if (isEmpty && targetBlock)
-              editor.updateBlock(targetBlock, { type: type as any, props });
-            else
-              editor.insertBlocks(
-                [{ type: type as any, props }],
-                targetBlock,
-                "after",
-              );
-          } catch {
-            const last = editor.document[editor.document.length - 1];
-            editor.insertBlocks([{ type: type as any, props }], last, "after");
-          }
-        };
-
-        let insertedBlocks = 0;
-        try {
-          switch (action) {
-            case "create_kanban":
-              insertBlock("kanban");
-              insertedBlocks = 1;
-              break;
-            case "create_mermaid":
-              insertBlock("mermaid", {
-                code: params?.content || "graph TD; A[Start] --> B[End];",
-              });
-              insertedBlocks = 1;
-              break;
-            case "create_chart": {
-              let chartData = params?.data;
-              if (typeof chartData === "object")
-                chartData = JSON.stringify(chartData);
-              if (!chartData)
-                chartData = JSON.stringify({
-                  labels: ["A", "B", "C"],
-                  datasets: [{ label: "Data", data: [10, 20, 30] }],
-                });
-              insertBlock("chart", {
-                type: params?.type || "bar",
-                data: chartData,
-              });
-              insertedBlocks = 1;
-              break;
-            }
-            case "create_math":
-              insertBlock("math", { latex: params?.content || "E=mc^2" });
-              insertedBlocks = 1;
-              break;
-            case "insert_image":
-              if (params?.url) {
-                insertBlock("image", {
-                  url: params.url,
-                  caption: params?.caption || "",
-                });
-                insertedBlocks = 1;
-              }
-              break;
-            case "insert_text":
-            case "append_text": {
-              const blocks = markdownToBlocks(params.content);
-              if (blocks.length > 0) {
-                insertedBlocks = blocks.length;
-                const lastBlock = editor.document[editor.document.length - 1];
-                editor.insertBlocks(blocks, lastBlock, "after");
-              }
-              break;
-            }
-            case "replace_text": {
-              const newBlocks = markdownToBlocks(params.content);
-              if (newBlocks.length > 0) {
-                if (params?.find || params?.search) {
-                  const needle = (params.find || params.search).toLowerCase();
-                  let found = false;
-                  for (const block of editor.document) {
-                    const blockText = ((block.content as any[]) || [])
-                      .map((c: any) => c.text || "")
-                      .join("")
-                      .toLowerCase();
-                    if (blockText.includes(needle)) {
-                      editor.updateBlock(block, newBlocks[0]);
-                      if (newBlocks.length > 1)
-                        editor.insertBlocks(newBlocks.slice(1), block, "after");
-                      found = true;
-                      break;
-                    }
-                  }
-                  if (!found)
-                    editor.insertBlocks(
-                      newBlocks,
-                      editor.document[editor.document.length - 1],
-                      "after",
-                    );
-                } else {
-                  editor.insertBlocks(
-                    newBlocks,
-                    editor.document[editor.document.length - 1],
-                    "after",
-                  );
-                }
-                insertedBlocks = newBlocks.length;
-              }
-              break;
-            }
-            case "replace_all": {
-              const newBlocks = markdownToBlocks(params.content);
-              if (newBlocks.length > 0) {
-                editor.removeBlocks(editor.document.map((b) => b.id));
-                const anchor = editor.document[0];
-                if (anchor) {
-                  editor.updateBlock(anchor, newBlocks[0]);
-                  if (newBlocks.length > 1)
-                    editor.insertBlocks(newBlocks.slice(1), anchor, "after");
-                } else {
-                  editor.insertBlocks(newBlocks, editor.document[0], "after");
-                }
-                insertedBlocks = newBlocks.length;
-              }
-              break;
-            }
-            case "update_page_title":
-              if (params?.title && activePageId)
-                updatePageTitle(activePageId, params.title);
-              break;
-            default:
-              break;
-          }
-
-          if (insertedBlocks > 0) {
-            requestAnimationFrame(() =>
-              aiAnimator.handleCommand(action, insertedBlocks),
-            );
-          }
-        } catch (e) {
-          console.error("Failed to execute tool:", e);
-        }
-      }, 80);
-    };
-
-    window.addEventListener("aiToolCommand", handleToolCommand);
-    return () => window.removeEventListener("aiToolCommand", handleToolCommand);
-  }, [editor, activePageId, updatePageTitle]);
 
   const handleFileUpload = async (fileType: "image" | "video" | "pdf") => {
     if (!editor || !activePageId) return;
@@ -1380,78 +1080,26 @@ export const OmniEditor = ({
               whileTap={{ scale: 0.95 }}
               onClick={async () => {
                 if (!editor || !editor.document) return;
-                if (isMagicRunning) return;
-                try {
-                  setIsMagicRunning(true);
-                  const isOllamaRunning = await aiService.healthCheck();
-                  if (!isOllamaRunning) {
-                    alert(
-                      "AI is not running. Please start Ollama or check settings.",
-                    );
-                    return;
-                  }
-
-                  const markdown = await editor.blocksToMarkdownLossy(
-                    editor.document,
-                  );
-                  const aiState = await aiService.getState();
-                  const prompt = `You are an expert copy editor. Reorganize and enhance the following markdown document. Fix headings, improve bullet points, and make the flow professional. Output EXACTLY ONE JSON action of type "replace_all" with the new content, per your system rules.\n\nCURRENT PAGE CONTENT:\n${markdown}`;
-                  const messages = [
-                    { role: "system", content: aiService.getToolDefinitions() },
-                    { role: "user", content: prompt },
-                  ];
-
-                  let fullResponse = "";
-                  await aiService.chatStream(
-                    messages,
-                    aiState.model,
-                    aiState.backend,
-                    (_chunk, accum) => {
-                      fullResponse = accum;
-                    },
-                  );
-
-                  const parsed =
-                    aiService.extractJsonFromResponse(fullResponse);
-                  if (parsed.commands && parsed.commands.length > 0) {
-                    for (const cmd of parsed.commands) {
-                      window.dispatchEvent(
-                        new CustomEvent("aiToolCommand", { detail: cmd }),
-                      );
+                const markdown = await editor.blocksToMarkdownLossy(
+                  editor.document,
+                );
+                const blocks = markdownToBlocks(markdown);
+                if (blocks.length > 0) {
+                  editor.removeBlocks(editor.document.map((block) => block.id));
+                  const anchor = editor.document[0];
+                  if (anchor) {
+                    editor.updateBlock(anchor, blocks[0]);
+                    if (blocks.length > 1) {
+                      editor.insertBlocks(blocks.slice(1), anchor, "after");
                     }
-                  } else if (parsed.textResponse.trim()) {
-                    window.dispatchEvent(
-                      new CustomEvent("aiToolCommand", {
-                        detail: {
-                          action: "replace_all",
-                          params: { content: parsed.textResponse },
-                        },
-                      }),
-                    );
-                  } else {
-                    alert("AI couldn't format the page. Try again.");
                   }
-                } catch (error) {
-                  console.error("❌ Error organizing page via AI:", error);
-                  alert("Failed to organize page. Check console for details.");
-                } finally {
-                  setIsMagicRunning(false);
                 }
               }}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg ${isMagicRunning ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:shadow-blue-500/10 border border-transparent hover:border-white/5"}`}
-              title="Use AI to automatically format and organize this page"
+              className="px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:shadow-blue-500/10 border border-transparent hover:border-white/5"
+              title="Reformat this page as markdown"
             >
-              {isMagicRunning ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                >
-                  <FaMagic size={14} className="text-blue-400" />
-                </motion.div>
-              ) : (
-                <FaMagic size={14} className="text-purple-400" />
-              )}
-              {isMagicRunning ? "Organizing..." : "Organize"}
+              <FaSave size={14} className="text-zinc-300" />
+              Reformat
             </motion.button>
 
             <div className="relative group z-50">

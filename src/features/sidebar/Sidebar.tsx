@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import { usePageStore } from "../../core/store/pageStore";
-import { useChatStore } from "../../core/store/chatStore";
 import {
   ChevronRight,
   FolderOpen,
   FileText,
-  MessageSquare,
   Plus,
   Trash2,
   Layers3,
@@ -123,43 +121,6 @@ const PageItem = ({
             onAddChild={onAddChild}
           />
         ))}
-    </div>
-  );
-};
-
-const ConversationItem = ({
-  title,
-  isActive,
-  onSelect,
-  onDelete,
-}: {
-  id: string;
-  title: string;
-  isActive: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) => {
-  return (
-    <div
-      onClick={onSelect}
-      className={cn(
-        "flex items-center gap-2 p-2 rounded-md cursor-pointer text-sm mb-0.5 group transition-colors mx-2",
-        isActive
-          ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 font-medium"
-          : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/50",
-      )}
-    >
-      <MessageSquare size={16} className="opacity-70" />
-      <span className="truncate flex-1 select-none">{title}</span>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded text-red-500 transition-opacity"
-      >
-        <Trash2 size={12} />
-      </button>
     </div>
   );
 };
@@ -311,12 +272,6 @@ export const Sidebar = ({ view }: { view?: string }) => {
   const removeDiagram = useDiagramStore((s) => s.removeDiagram);
   const createDiagram = useDiagramStore((s) => s.createDiagram);
 
-  const conversations = useChatStore((s) => s.conversations);
-  const activeConvId = useChatStore((s) => s.activeConversationId);
-  const setActiveConv = useChatStore((s) => s.setActiveConversation);
-  const addConversation = useChatStore((s) => s.addConversation);
-  const deleteConversation = useChatStore((s) => s.deleteConversation);
-
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
@@ -373,11 +328,9 @@ export const Sidebar = ({ view }: { view?: string }) => {
     });
   };
 
-  const isChatMode = view === "aichat";
-
   return (
     <>
-      <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 no-print">
+      <div className="app-sidebar h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 no-print">
         <div className="px-4 py-3 border-b border-zinc-200/80 dark:border-zinc-800 flex items-center justify-between bg-gradient-to-b from-white/70 to-transparent dark:from-zinc-950/70">
           <span className="flex items-center gap-2 text-sm font-semibold tracking-wide text-zinc-800 dark:text-zinc-100">
             <span className="inline-flex h-2.5 w-2.5 rounded-full bg-blue-500 shadow-[0_0_16px_rgba(59,130,246,0.65)]" />
@@ -402,11 +355,9 @@ export const Sidebar = ({ view }: { view?: string }) => {
             </div>
           ) : (
             <button
-              onClick={() =>
-                isChatMode ? addConversation() : handleAddPage(null)
-              }
+              onClick={() => handleAddPage(null)}
               className="p-2 hover:bg-zinc-200/80 dark:hover:bg-zinc-900 rounded-xl transition"
-              title={isChatMode ? "New Conversation" : "New Page"}
+              title="New Page"
             >
               <Plus size={16} />
             </button>
@@ -434,20 +385,18 @@ export const Sidebar = ({ view }: { view?: string }) => {
             </button>
           </div>
         ) : (
-          !isChatMode && (
-            <div className="border-b border-zinc-200/80 dark:border-zinc-800 p-3">
-              <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
-                Templates
-              </div>
-              <button
-                onClick={() => setShowTemplateManager(true)}
-                className="w-full px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-xl flex items-center gap-2 transition"
-              >
-                <FolderOpen size={14} />
-                Manage Templates
-              </button>
+          <div className="border-b border-zinc-200/80 dark:border-zinc-800 p-3">
+            <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-2">
+              Templates
             </div>
-          )
+            <button
+              onClick={() => setShowTemplateManager(true)}
+              className="w-full px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-xl flex items-center gap-2 transition"
+            >
+              <FolderOpen size={14} />
+              Manage Templates
+            </button>
+          </div>
         )}
 
         <div className="flex-1 overflow-y-auto py-2">
@@ -472,27 +421,6 @@ export const Sidebar = ({ view }: { view?: string }) => {
                   onRenameFolder={renameDiagramFolder}
                   onDeleteFolder={removeDiagramFolder}
                   onDeleteDiagram={removeDiagram}
-                />
-              ))}
-            </>
-          ) : isChatMode ? (
-            <>
-              <div className="text-[11px] font-semibold tracking-[0.2em] text-zinc-500 dark:text-zinc-400 mb-2 uppercase px-4">
-                Conversations
-              </div>
-              {conversations.length === 0 && (
-                <div className="px-4 text-xs text-zinc-400">
-                  No conversations yet
-                </div>
-              )}
-              {conversations.map((conv) => (
-                <ConversationItem
-                  key={conv.id}
-                  id={conv.id}
-                  title={conv.title}
-                  isActive={conv.id === activeConvId}
-                  onSelect={() => setActiveConv(conv.id)}
-                  onDelete={() => deleteConversation(conv.id)}
                 />
               ))}
             </>

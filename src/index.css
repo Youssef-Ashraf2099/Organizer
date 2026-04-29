@@ -256,21 +256,6 @@
 }
 
 
-/* AI Animation Suite */
-@keyframes slideInUp {
-  0% { opacity: 0; transform: translateY(18px) scale(0.97); filter: blur(2px); }
-  60% { opacity: 1; filter: blur(0); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
-.ai-block-insert { animation: slideInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both !important; }
-
-@keyframes highlightFade {
-  0% { background-color: rgba(59, 130, 246, 0.22); box-shadow: inset 0 0 0 1.5px rgba(59, 130, 246, 0.35), 0 0 12px rgba(59, 130, 246, 0.1); }
-  50% { background-color: rgba(59, 130, 246, 0.08); box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.15); }
-  100% { background-color: transparent; box-shadow: none; }
-}
-.ai-edit-highlight { border-radius: 6px !important; animation: highlightFade 3s ease-out forwards !important; }
-
 /* Premium Glassmorphism & Aesthetics */
 .glass-panel {
   background: rgba(24, 24, 27, 0.7);
@@ -278,6 +263,158 @@
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* App theme presets */
+body.theme-midnight .app-shell {
+  background-color: #09090b !important;
+  color: #fafafa !important;
+}
+
+body.theme-midnight {
+  background-color: #09090b !important;
+  color: #fafafa !important;
+}
+
+body.theme-midnight .app-sidebar,
+body.theme-midnight .app-topbar,
+body.theme-midnight .app-content {
+  background-color: #09090b !important;
+  border-color: #27272a !important;
+}
+
+body.theme-notion-gray .app-shell {
+  background-color: #f1f1ef !important;
+  color: #37352f !important;
+}
+
+body.theme-notion-gray {
+  background-color: #f1f1ef !important;
+  color: #37352f !important;
+}
+
+body.theme-notion-gray .app-sidebar {
+  background-color: #f7f7f5 !important;
+  border-color: #e7e6e2 !important;
+}
+
+body.theme-notion-gray .app-topbar {
+  background-color: #efefec !important;
+  border-color: #e7e6e2 !important;
+}
+
+body.theme-notion-gray .app-content {
+  background-color: #fbfbfa !important;
+}
+
+body.theme-notion-dark .app-shell {
+  background-color: #2f3437 !important;
+  color: #e3e5e7 !important;
+}
+
+body.theme-notion-dark {
+  background-color: #2f3437 !important;
+  color: #e3e5e7 !important;
+}
+
+body.theme-notion-dark .app-sidebar {
+  background-color: #373c3f !important;
+  border-color: #4a5053 !important;
+}
+
+body.theme-notion-dark .app-topbar {
+  background-color: #373c3f !important;
+  border-color: #4a5053 !important;
+}
+
+body.theme-notion-dark .app-content {
+  background-color: #2f3437 !important;
+}
+
+body.theme-white .app-shell {
+  background-color: #ffffff !important;
+  color: #18181b !important;
+}
+
+body.theme-white {
+  background-color: #ffffff !important;
+  color: #18181b !important;
+}
+
+body.theme-white .app-sidebar,
+body.theme-white .app-topbar,
+body.theme-white .app-content {
+  background-color: #ffffff !important;
+  border-color: #e4e4e7 !important;
+}
+
+body.theme-pink-blush .app-shell {
+  background-color: #fff1f6 !important;
+  color: #4a1d32 !important;
+}
+
+body.theme-pink-blush {
+  background-color: #fff1f6 !important;
+  color: #4a1d32 !important;
+}
+
+body.theme-pink-blush .app-sidebar {
+  background-color: #ffe4ef !important;
+  border-color: #f7c9dd !important;
+}
+
+body.theme-pink-blush .app-topbar {
+  background-color: #ffd9ea !important;
+  border-color: #f7c9dd !important;
+}
+
+body.theme-pink-blush .app-content {
+  background-color: #fff7fb !important;
+}
+
+body.theme-ocean-mint .app-shell {
+  background-color: #ecfeff !important;
+  color: #0f2c36 !important;
+}
+
+body.theme-ocean-mint {
+  background-color: #ecfeff !important;
+  color: #0f2c36 !important;
+}
+
+body.theme-ocean-mint .app-sidebar {
+  background-color: #dff7f2 !important;
+  border-color: #b9e8e0 !important;
+}
+
+body.theme-ocean-mint .app-topbar {
+  background-color: #d4f4ee !important;
+  border-color: #b9e8e0 !important;
+}
+
+body.theme-ocean-mint .app-content {
+  background-color: #f4fffd !important;
+}
+
+/* Ensure major feature screens follow light themes, not forced black surfaces */
+body.theme-notion-gray .todo-root,
+body.theme-white .todo-root,
+body.theme-pink-blush .todo-root,
+body.theme-ocean-mint .todo-root,
+body.theme-notion-gray .calendar-root,
+body.theme-white .calendar-root,
+body.theme-pink-blush .calendar-root,
+body.theme-ocean-mint .calendar-root,
+body.theme-notion-gray .roadmap-root,
+body.theme-white .roadmap-root,
+body.theme-pink-blush .roadmap-root,
+body.theme-ocean-mint .roadmap-root,
+body.theme-notion-gray .diagram-root,
+body.theme-white .diagram-root,
+body.theme-pink-blush .diagram-root,
+body.theme-ocean-mint .diagram-root {
+  background-color: inherit !important;
+  color: inherit !important;
 }
 
 .premium-gradient-text {

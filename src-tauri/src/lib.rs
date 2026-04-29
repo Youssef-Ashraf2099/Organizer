@@ -1,5 +1,4 @@
 pub mod database;
-pub mod ai;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -7,7 +6,6 @@ use std::path::Path;
 use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
-use ai::{OllamaClient, OpenAIClient, RAGEngine, operations::AIAction, AiConfig, BackendType, ChatMessage};
 use database::diagrams::{self, DiagramFolder, DiagramLibrary, DiagramRecord, SaveDiagramInput};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -338,164 +336,6 @@ async fn delete_asset_file(app: tauri::AppHandle, file_path: String) -> Result<(
     Ok(())
 }
 
-// ==================== AI AGENT COMMANDS ====================
-
-/// Check if Ollama is running and accessible
-#[tauri::command]
-async fn ai_health_check(state: tauri::State<'_, AiState>) -> Result<bool, String> {
-    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
-    match cfg.backend {
-        BackendType::Ollama => {
-            let client = OllamaClient::new(Some(cfg.base_url.clone()), cfg.model.clone());
-            client.health_check().await.map_err(|e| e.to_string())
-        }
-        BackendType::OpenAI => {
-            let client = OpenAIClient::new(cfg.base_url.clone(), cfg.model.clone(), None);
-            client.health_check().await.map_err(|e| e.to_string())
-        }
-    }
-}
-
-/// Get list of available AI models from Ollama
-#[tauri::command]
-async fn ai_list_models(state: tauri::State<'_, AiState>) -> Result<Vec<String>, String> {
-    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
-    match cfg.backend {
-        BackendType::Ollama => {
-            let client = OllamaClient::new(Some(cfg.base_url.clone()), cfg.model.clone());
-            client.list_models().await.map_err(|e| e.to_string())
-        }
-        BackendType::OpenAI => {
-            let client = OpenAIClient::new(cfg.base_url.clone(), cfg.model.clone(), None);
-            client.list_models().await.map_err(|e| e.to_string())
-        }
-    }
-}
-
-/// Get predefined AI actions (slash commands)
-#[tauri::command]
-fn ai_get_actions() -> Vec<AIAction> {
-    AIAction::default_actions()
-}
-
-/// Execute an AI action with context
-#[tauri::command]
-async fn ai_execute_action(
-    state: tauri::State<'_, AiState>,
-    _page_id: String,
-    action_id: String,
-    selection: String,
-    page_context: Option<String>,
-) -> Result<String, String> {
-    // Get the action definition
-    let actions = AIAction::default_actions();
-    let action = actions
-        .iter()
-        .find(|a| a.id == action_id)
-        .ok_or("Action not found")?
-        .clone();
-
-    // Build context prompt
-    let context = page_context.unwrap_or(selection.clone());
-    let rag = RAGEngine::new();
-    let prompt = rag
-        .build_context_prompt(&selection, &context, &action.system_prompt)
-        .map_err(|e| e.to_string())?;
-
-    // Generate response using Ollama
-    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
-    let response = match cfg.backend {
-        BackendType::Ollama => {
-            let client = OllamaClient::new(Some(cfg.base_url.clone()), cfg.model.clone());
-            client.generate(&prompt, Some(0.7), Some(500)).await.map_err(|e| e.to_string())?
-        }
-        BackendType::OpenAI => {
-            let client = OpenAIClient::new(cfg.base_url.clone(), cfg.model.clone(), None);
-            client.generate(&prompt, Some(0.7), Some(500)).await.map_err(|e| e.to_string())?
-        }
-    };
-
-    Ok(response)
-}
-
-/// Get AI state (model info, etc)
-#[tauri::command]
-fn ai_get_state(state: tauri::State<'_, AiState>) -> AiConfig {
-    state.config.lock().unwrap().clone()
-}
-
-#[tauri::command]
-fn ai_set_state(state: tauri::State<'_, AiState>, backend: BackendType, base_url: String, model: String) -> Result<(), String> {
-    let mut cfg = state.config.lock().map_err(|_| "config lock poisoned")?;
-    cfg.backend = backend;
-    cfg.base_url = base_url;
-    cfg.model = model;
-    Ok(())
-}
-
-/// Chat with AI model (conversational interface)
-#[tauri::command]
-async fn ai_chat(
-    state: tauri::State<'_, AiState>,
-    messages: Vec<ChatMessage>,
-    model: Option<String>,
-    backend: Option<BackendType>,
-) -> Result<String, String> {
-    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
-    
-    let target_backend = backend.unwrap_or(cfg.backend);
-    let target_model = model.unwrap_or(cfg.model);
-    
-    // Note: We currently reuse the configured base_url. 
-    // In the future, we might want to pass base_url override or have separate configs per backend.
-    
-    match target_backend {
-        BackendType::Ollama => {
-            let client = OllamaClient::new(Some(cfg.base_url.clone()), target_model);
-            client.chat(messages).await.map_err(|e| e.to_string())
-        }
-        BackendType::OpenAI => {
-            let client = OpenAIClient::new(cfg.base_url.clone(), target_model, None);
-            client.chat(messages).await.map_err(|e| e.to_string())
-        }
-    }
-}
-
-/// Chat with AI model (streaming)
-#[tauri::command]
-async fn ai_chat_stream(
-    state: tauri::State<'_, AiState>,
-    messages: Vec<ChatMessage>,
-    model: Option<String>,
-    backend: Option<BackendType>,
-    on_chunk: tauri::ipc::Channel<String>,
-) -> Result<(), String> {
-    let cfg = state.config.lock().map_err(|_| "config lock poisoned")?.clone();
-    
-    let target_backend = backend.unwrap_or(cfg.backend);
-    let target_model = model.unwrap_or(cfg.model);
-    
-    match target_backend {
-        BackendType::Ollama => {
-            let client = OllamaClient::new(Some(cfg.base_url.clone()), target_model);
-            client.chat_stream(messages, move |chunk| {
-                let _ = on_chunk.send(chunk);
-            }).await.map_err(|e| e.to_string())
-        }
-        BackendType::OpenAI => {
-            let client = OpenAIClient::new(cfg.base_url.clone(), target_model, None);
-            client.chat_stream(messages, move |chunk| {
-                let _ = on_chunk.send(chunk);
-            }).await.map_err(|e| e.to_string())
-        }
-    }
-}
-
-/// State struct for sharing dependencies across commands
-pub struct AiState {
-    pub config: Mutex<AiConfig>,
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -517,9 +357,7 @@ pub fn run() {
             app.manage(StartupFileState {
                 markdown_files: Mutex::new(startup_markdown_files),
             });
-            // Initialize AI state with default configuration
-            app.manage(AiState { config: Mutex::new(AiConfig::default()) });
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -537,14 +375,6 @@ pub fn run() {
             diagram_delete_folder,
             diagram_save,
             diagram_delete,
-            ai_health_check,
-            ai_list_models,
-            ai_get_actions,
-            ai_execute_action,
-            ai_get_state,
-            ai_set_state,
-            ai_chat,
-            ai_chat_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
