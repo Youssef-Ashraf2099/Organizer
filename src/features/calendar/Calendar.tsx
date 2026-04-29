@@ -58,42 +58,102 @@ const occursOnDate = (event: CalendarEvent, dateStr: string) => {
 
 const EVENT_TAGS = [
   // Academic
-  { name: "quiz",         color: "#3b82f6", label: "📝 Quiz",           group: "Academic" },
-  { name: "exam",         color: "#ef4444", label: "📚 Exam",            group: "Academic" },
-  { name: "final",        color: "#dc2626", label: "🎓 Final Exam",      group: "Academic" },
-  { name: "study",        color: "#6366f1", label: "📖 Study Session",   group: "Academic" },
-  { name: "lecture",      color: "#8b5cf6", label: "🏫 Lecture",         group: "Academic" },
-  { name: "university",   color: "#7c3aed", label: "🎓 University",      group: "Academic" },
-  { name: "workshop",     color: "#a78bfa", label: "🔧 Workshop",        group: "Academic" },
+  { name: "quiz", color: "#3b82f6", label: "📝 Quiz", group: "Academic" },
+  { name: "exam", color: "#ef4444", label: "📚 Exam", group: "Academic" },
+  {
+    name: "final",
+    color: "#dc2626",
+    label: "🎓 Final Exam",
+    group: "Academic",
+  },
+  {
+    name: "study",
+    color: "#6366f1",
+    label: "📖 Study Session",
+    group: "Academic",
+  },
+  { name: "lecture", color: "#8b5cf6", label: "🏫 Lecture", group: "Academic" },
+  {
+    name: "university",
+    color: "#7c3aed",
+    label: "🎓 University",
+    group: "Academic",
+  },
+  {
+    name: "workshop",
+    color: "#a78bfa",
+    label: "🔧 Workshop",
+    group: "Academic",
+  },
   // Work
-  { name: "meeting",      color: "#06b6d4", label: "👥 Meeting",         group: "Work" },
-  { name: "deadline",     color: "#f59e0b", label: "⏰ Deadline",        group: "Work" },
-  { name: "coding",       color: "#14b8a6", label: "💻 Coding",          group: "Work" },
-  { name: "project",      color: "#0ea5e9", label: "📋 Project",         group: "Work" },
-  { name: "conference",   color: "#0284c7", label: "🎤 Conference",      group: "Work" },
-  { name: "interview",    color: "#38bdf8", label: "🤝 Interview",       group: "Work" },
-  { name: "presentation", color: "#0369a1", label: "📊 Presentation",   group: "Work" },
-  { name: "volunteer",    color: "#059669", label: "🙌 Volunteer",       group: "Work" },
+  { name: "meeting", color: "#06b6d4", label: "👥 Meeting", group: "Work" },
+  { name: "deadline", color: "#f59e0b", label: "⏰ Deadline", group: "Work" },
+  { name: "coding", color: "#14b8a6", label: "💻 Coding", group: "Work" },
+  { name: "project", color: "#0ea5e9", label: "📋 Project", group: "Work" },
+  {
+    name: "conference",
+    color: "#0284c7",
+    label: "🎤 Conference",
+    group: "Work",
+  },
+  { name: "interview", color: "#38bdf8", label: "🤝 Interview", group: "Work" },
+  {
+    name: "presentation",
+    color: "#0369a1",
+    label: "📊 Presentation",
+    group: "Work",
+  },
+  { name: "volunteer", color: "#059669", label: "🙌 Volunteer", group: "Work" },
   // Personal
-  { name: "birthday",     color: "#ec4899", label: "🎂 Birthday",        group: "Personal" },
-  { name: "hangout",      color: "#10b981", label: "🎉 Hangout",         group: "Personal" },
-  { name: "family",       color: "#f472b6", label: "👨‍👩‍👧 Family",          group: "Personal" },
-  { name: "social",       color: "#fb7185", label: "🥳 Social Event",    group: "Personal" },
-  { name: "travel",       color: "#8b5cf6", label: "✈️ Travel",          group: "Personal" },
-  { name: "holiday",      color: "#d946ef", label: "🎄 Holiday",         group: "Personal" },
-  { name: "personal",     color: "#6366f1", label: "🏠 Personal",        group: "Personal" },
-  { name: "shopping",     color: "#f97316", label: "🛍️ Shopping",        group: "Personal" },
-  { name: "food",         color: "#fbbf24", label: "🍽️ Food & Dining",   group: "Personal" },
-  { name: "prayer",       color: "#a16207", label: "🤲 Prayer",          group: "Personal" },
+  {
+    name: "birthday",
+    color: "#ec4899",
+    label: "🎂 Birthday",
+    group: "Personal",
+  },
+  { name: "hangout", color: "#10b981", label: "🎉 Hangout", group: "Personal" },
+  { name: "family", color: "#f472b6", label: "👨‍👩‍👧 Family", group: "Personal" },
+  {
+    name: "social",
+    color: "#fb7185",
+    label: "🥳 Social Event",
+    group: "Personal",
+  },
+  { name: "travel", color: "#8b5cf6", label: "✈️ Travel", group: "Personal" },
+  { name: "holiday", color: "#d946ef", label: "🎄 Holiday", group: "Personal" },
+  {
+    name: "personal",
+    color: "#6366f1",
+    label: "🏠 Personal",
+    group: "Personal",
+  },
+  {
+    name: "shopping",
+    color: "#f97316",
+    label: "🛍️ Shopping",
+    group: "Personal",
+  },
+  {
+    name: "food",
+    color: "#fbbf24",
+    label: "🍽️ Food & Dining",
+    group: "Personal",
+  },
+  { name: "prayer", color: "#a16207", label: "🤲 Prayer", group: "Personal" },
   // Health & Fitness
-  { name: "gym",          color: "#22c55e", label: "🏋️ Gym & Fitness",  group: "Health" },
-  { name: "health",       color: "#f43f5e", label: "⚕️ Health",          group: "Health" },
-  { name: "sports",       color: "#84cc16", label: "⚽ Sports",          group: "Health" },
-  { name: "appointment",  color: "#e11d48", label: "🏥 Appointment",     group: "Health" },
+  { name: "gym", color: "#22c55e", label: "🏋️ Gym & Fitness", group: "Health" },
+  { name: "health", color: "#f43f5e", label: "⚕️ Health", group: "Health" },
+  { name: "sports", color: "#84cc16", label: "⚽ Sports", group: "Health" },
+  {
+    name: "appointment",
+    color: "#e11d48",
+    label: "🏥 Appointment",
+    group: "Health",
+  },
   // Finance & Misc
-  { name: "finance",      color: "#eab308", label: "💰 Finance",         group: "Finance" },
-  { name: "music",        color: "#c084fc", label: "🎵 Music",           group: "Misc" },
-  { name: "other",        color: "#64748b", label: "📌 Other",           group: "Misc" },
+  { name: "finance", color: "#eab308", label: "💰 Finance", group: "Finance" },
+  { name: "music", color: "#c084fc", label: "🎵 Music", group: "Misc" },
+  { name: "other", color: "#64748b", label: "📌 Other", group: "Misc" },
 ];
 
 const TAG_COLOR_MAP = EVENT_TAGS.reduce(
@@ -104,7 +164,14 @@ const TAG_COLOR_MAP = EVENT_TAGS.reduce(
   {} as Record<string, string>,
 );
 
-const TAG_GROUPS = ["Academic", "Work", "Personal", "Health", "Finance", "Misc"] as const;
+const TAG_GROUPS = [
+  "Academic",
+  "Work",
+  "Personal",
+  "Health",
+  "Finance",
+  "Misc",
+] as const;
 
 /* ── Custom Tag Dropdown ─────────────────────────────────── */
 const TagDropdown = ({
@@ -121,7 +188,8 @@ const TagDropdown = ({
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -134,19 +202,33 @@ const TagDropdown = ({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center gap-2 bg-zinc-900 border border-zinc-700 hover:border-zinc-500 rounded-xl px-3 py-2.5 text-zinc-100 transition-colors text-left"
-        style={{ borderLeftWidth: "4px", borderLeftColor: selectedTag?.color ?? "#64748b" }}
+        style={{
+          borderLeftWidth: "4px",
+          borderLeftColor: selectedTag?.color ?? "#64748b",
+        }}
       >
-        <span className="text-lg leading-none">{selectedTag?.label.split(" ")[0]}</span>
-        <span className="flex-1 text-sm">{selectedTag?.label.split(" ").slice(1).join(" ")}</span>
+        <span className="text-lg leading-none">
+          {selectedTag?.label.split(" ")[0]}
+        </span>
+        <span className="flex-1 text-sm">
+          {selectedTag?.label.split(" ").slice(1).join(" ")}
+        </span>
         <div
           className="w-2.5 h-2.5 rounded-full flex-shrink-0"
           style={{ backgroundColor: selectedTag?.color ?? "#64748b" }}
         />
         <svg
           className={`w-4 h-4 text-zinc-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M19 9l-7 7-7-7"
+          />
         </svg>
       </button>
 
@@ -169,7 +251,10 @@ const TagDropdown = ({
                   <button
                     key={tag.name}
                     type="button"
-                    onClick={() => { onChange(tag.name); setOpen(false); }}
+                    onClick={() => {
+                      onChange(tag.name);
+                      setOpen(false);
+                    }}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left ${
                       value === tag.name
                         ? "bg-zinc-700/60 text-white"
@@ -182,13 +267,27 @@ const TagDropdown = ({
                       style={{ backgroundColor: tag.color }}
                     />
                     {/* Emoji */}
-                    <span className="text-base leading-none">{tag.label.split(" ")[0]}</span>
+                    <span className="text-base leading-none">
+                      {tag.label.split(" ")[0]}
+                    </span>
                     {/* Name */}
-                    <span className="flex-1">{tag.label.split(" ").slice(1).join(" ")}</span>
+                    <span className="flex-1">
+                      {tag.label.split(" ").slice(1).join(" ")}
+                    </span>
                     {/* Checkmark */}
                     {value === tag.name && (
-                      <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      <svg
+                        className="w-3.5 h-3.5 text-blue-400 flex-shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M5 13l4 4L19 7"
+                        />
                       </svg>
                     )}
                   </button>
@@ -203,7 +302,6 @@ const TagDropdown = ({
 };
 
 export const Calendar = () => {
-
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -407,9 +505,17 @@ export const Calendar = () => {
               title={event.title}
             >
               <div className="flex items-center gap-1 w-full">
-                <span>{EVENT_TAGS.find(t => t.name === event.tag)?.label.split(' ')[0]}</span>
+                <span>
+                  {
+                    EVENT_TAGS.find((t) => t.name === event.tag)?.label.split(
+                      " ",
+                    )[0]
+                  }
+                </span>
                 <span className="truncate">
-                  {event.time ? <span className="opacity-70 mr-0.5">{event.time}</span> : null}
+                  {event.time ? (
+                    <span className="opacity-70 mr-0.5">{event.time}</span>
+                  ) : null}
                   {event.title}
                 </span>
               </div>
@@ -549,24 +655,35 @@ export const Calendar = () => {
                       {/* Main info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-zinc-100 truncate">{event.title}</span>
+                          <span className="font-semibold text-zinc-100 truncate">
+                            {event.title}
+                          </span>
                           {event.repeatEnabled && (
-                            <span className="text-[10px] text-emerald-400 border border-emerald-400/40 rounded px-1">🔁 repeat</span>
+                            <span className="text-[10px] text-emerald-400 border border-emerald-400/40 rounded px-1">
+                              🔁 repeat
+                            </span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           {event.time && (
-                            <span className="text-xs text-zinc-400">⏰ {event.time}</span>
+                            <span className="text-xs text-zinc-400">
+                              ⏰ {event.time}
+                            </span>
                           )}
                           <span
                             className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: tagColor + "30", color: tagColor }}
+                            style={{
+                              backgroundColor: tagColor + "30",
+                              color: tagColor,
+                            }}
                           >
                             {tagDef?.label}
                           </span>
                         </div>
                         {event.description && (
-                          <p className="text-xs text-zinc-500 mt-1 truncate">{event.description}</p>
+                          <p className="text-xs text-zinc-500 mt-1 truncate">
+                            {event.description}
+                          </p>
                         )}
                       </div>
 
@@ -684,7 +801,9 @@ export const Calendar = () => {
                 </label>
                 <TagDropdown
                   value={editingEvent.tag}
-                  onChange={(val) => setEditingEvent({ ...editingEvent, tag: val })}
+                  onChange={(val) =>
+                    setEditingEvent({ ...editingEvent, tag: val })
+                  }
                 />
               </div>
 
@@ -769,7 +888,7 @@ export const Calendar = () => {
               </div>
             </div>
 
-              <div className="p-4 border-t border-white/10 flex gap-3">
+            <div className="p-4 border-t border-white/10 flex gap-3">
               <button
                 onClick={() => {
                   setEditingEvent(null);

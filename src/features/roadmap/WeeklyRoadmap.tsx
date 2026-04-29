@@ -17,11 +17,11 @@ export const WeeklyRoadmap = () => {
   const tasks = useRoadmapStore((state) => state.tasks);
   const addTask = useRoadmapStore((state) => state.addTask);
   const updateTask = useRoadmapStore((state) => state.updateTask);
-  
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<RoadmapTask | undefined>();
   const [targetDate, setTargetDate] = useState<string | undefined>();
-  
+
   const [reminderEnabled, setReminderEnabled] = useState(() => {
     return localStorage.getItem("omni-roadmap-reminder") === "true";
   });
@@ -37,8 +37,11 @@ export const WeeklyRoadmap = () => {
     return res;
   };
 
-  const currentSaturday = useMemo(() => getSaturday(currentDate), [currentDate]);
-  
+  const currentSaturday = useMemo(
+    () => getSaturday(currentDate),
+    [currentDate],
+  );
+
   const currentSunday = useMemo(() => {
     const d = new Date(currentSaturday);
     d.setDate(d.getDate() + 6);
@@ -49,10 +52,10 @@ export const WeeklyRoadmap = () => {
   const weekStats = useMemo(() => {
     const start = currentSaturday.toISOString().split("T")[0];
     const end = currentSunday.toISOString().split("T")[0];
-    
-    const weekTasks = tasks.filter(t => t.date >= start && t.date <= end);
-    const doneTasks = weekTasks.filter(t => t.status === "done").length;
-    
+
+    const weekTasks = tasks.filter((t) => t.date >= start && t.date <= end);
+    const doneTasks = weekTasks.filter((t) => t.status === "done").length;
+
     return {
       total: weekTasks.length,
       done: doneTasks,
@@ -69,14 +72,15 @@ export const WeeklyRoadmap = () => {
         const events = JSON.parse(raw);
         const start = currentSaturday.toISOString().split("T")[0];
         const end = currentSunday.toISOString().split("T")[0];
-        return events.filter((e: any) => e.date >= start && e.date <= end).length;
+        return events.filter((e: any) => e.date >= start && e.date <= end)
+          .length;
       } catch {
         return 0;
       }
     };
-    
+
     setCalendarCount(countCalEvents());
-    
+
     const onStorage = (e: StorageEvent) => {
       if (e.key === "calendar-events") setCalendarCount(countCalEvents());
     };
@@ -124,7 +128,7 @@ export const WeeklyRoadmap = () => {
 
   const toggleReminder = async () => {
     const newState = !reminderEnabled;
-    
+
     if (newState) {
       const permItem = await notificationService.requestPermission();
       if (!permItem) return;
@@ -137,7 +141,7 @@ export const WeeklyRoadmap = () => {
       const nextSunday = new Date();
       nextSunday.setDate(nextSunday.getDate() + (7 - nextSunday.getDay()));
       nextSunday.setHours(17, 0, 0, 0);
-      
+
       if (nextSunday.getTime() <= Date.now()) {
         nextSunday.setDate(nextSunday.getDate() + 7);
       }
@@ -158,7 +162,6 @@ export const WeeklyRoadmap = () => {
     <div className="roadmap-root h-full flex flex-col bg-zinc-950">
       {/* ── Tactical Header ───────────────────────────────────────── */}
       <div className="px-6 py-4 flex flex-col gap-4 border-b border-zinc-800 bg-zinc-900 shadow-sm relative z-10">
-        
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
@@ -182,17 +185,26 @@ export const WeeklyRoadmap = () => {
           <div className="flex items-center gap-4">
             {/* Intel Strip */}
             <div className="hidden md:flex items-center gap-3 px-4 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg">
-              <div className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold" title="Total Missions">
+              <div
+                className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold"
+                title="Total Missions"
+              >
                 <FaMapSigns size={12} className="text-blue-400" />
                 <span>{weekStats.total}</span>
               </div>
               <div className="w-px h-3 bg-zinc-800" />
-              <div className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold" title="Completed Missions">
+              <div
+                className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold"
+                title="Completed Missions"
+              >
                 <FaCheckDouble size={12} className="text-emerald-500" />
                 <span>{weekStats.done}</span>
               </div>
               <div className="w-px h-3 bg-zinc-800" />
-              <div className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold" title="Calendar Events">
+              <div
+                className="flex items-center gap-1.5 text-zinc-400 text-xs font-bold"
+                title="Calendar Events"
+              >
                 <FaCalendarAlt size={12} className="text-purple-400" />
                 <span>{calendarCount}</span>
               </div>
@@ -201,13 +213,17 @@ export const WeeklyRoadmap = () => {
             <button
               onClick={toggleReminder}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition border ${
-                reminderEnabled 
-                  ? "border-amber-500/30 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20" 
+                reminderEnabled
+                  ? "border-amber-500/30 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
                   : "border-zinc-700 text-zinc-400 bg-zinc-800 hover:bg-zinc-700 hover:text-zinc-200"
               }`}
               title="Toggle weekly tactical planning reminder (Sunday 17:00)"
             >
-              {reminderEnabled ? <FaBell size={12} /> : <FaBellSlash size={12} />}
+              {reminderEnabled ? (
+                <FaBell size={12} />
+              ) : (
+                <FaBellSlash size={12} />
+              )}
               <span className="hidden sm:inline">Alerts</span>
             </button>
 
@@ -233,16 +249,15 @@ export const WeeklyRoadmap = () => {
             </div>
           </div>
         </div>
-
       </div>
 
       {/* ── Board Area ───────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden flex relative bg-zinc-950">
-         <RoadmapBoard
-           startDate={currentSaturday}
-           onAddTask={openAddDialog}
-           onEditTask={openEditDialog}
-         />
+        <RoadmapBoard
+          startDate={currentSaturday}
+          onAddTask={openAddDialog}
+          onEditTask={openEditDialog}
+        />
       </div>
 
       <TaskDialog

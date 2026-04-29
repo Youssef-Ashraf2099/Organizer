@@ -145,10 +145,7 @@ interface OmniEditorProps {
   onSelectText?: (text: string) => void;
 }
 
-export const OmniEditor = ({
-  onUpload,
-  onSelectText,
-}: OmniEditorProps) => {
+export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
   useEffect(() => {
     if (onUpload) console.debug("Upload handler registered");
     if (onSelectText) console.debug("Text selection handler registered");
@@ -293,7 +290,6 @@ export const OmniEditor = ({
 
     loadContent();
   }, [activePageId]);
-
 
   const handleFileUpload = async (fileType: "image" | "video" | "pdf") => {
     if (!editor || !activePageId) return;

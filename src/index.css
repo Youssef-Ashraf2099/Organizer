@@ -8,7 +8,8 @@
     --foreground: 0 0% 100%;
   }
 
-  html, body {
+  html,
+  body {
     margin: 0;
     padding: 0;
     background-color: #09090b;
@@ -16,7 +17,6 @@
     width: 100%;
     height: 100%;
   }
-
 
   /* Scrollbar Styling */
   ::-webkit-scrollbar {
@@ -40,7 +40,8 @@
   }
 
   /* Firefox Scrollbar */
-  html, body {
+  html,
+  body {
     scrollbar-color: #3f3f46 #18181b;
     scrollbar-width: thin;
   }
@@ -114,7 +115,8 @@
   }
 
   /* Custom Cursor - only hide when body has custom-cursor class */
-  body.custom-cursor, body.custom-cursor * {
+  body.custom-cursor,
+  body.custom-cursor * {
     cursor: none !important;
   }
 
@@ -122,7 +124,6 @@
   .no-custom-cursor {
     cursor: auto !important;
   }
-
 
   /* Premium Selection Highlight */
   ::selection {
@@ -143,11 +144,11 @@
     width: 100%;
   }
 
-  .bn-table td, .bn-table th {
+  .bn-table td,
+  .bn-table th {
     padding: 0.75rem;
     vertical-align: top;
   }
-
 
   .omni-page-shell {
     width: 100%;
@@ -227,11 +228,17 @@
 
   /* Print Styling for PDF Export */
   @media print {
-    aside, nav, button, input[type="text"] {
+    aside,
+    nav,
+    button,
+    input[type="text"] {
       display: none !important;
       visibility: hidden !important;
     }
-    body, #root, .h-full, .flex {
+    body,
+    #root,
+    .h-full,
+    .flex {
       background-color: #ffffff !important;
       color: #000000 !important;
       height: auto !important;
@@ -254,7 +261,6 @@
     }
   }
 }
-
 
 /* Premium Glassmorphism & Aesthetics */
 .glass-panel {
@@ -425,5 +431,9 @@ body.theme-ocean-mint .diagram-root {
 }
 
 .premium-gradient-bg {
-  background: linear-gradient(135deg, rgba(96, 165, 250, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(96, 165, 250, 0.1) 0%,
+    rgba(168, 85, 247, 0.1) 100%
+  );
 }

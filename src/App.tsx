@@ -7,7 +7,7 @@ import { useSettingsStore } from "./core/store/settingsStore";
 
 function App() {
   const initializeBuiltinTemplates = useTemplateStore(
-    (s) => s.initializeBuiltinTemplates
+    (s) => s.initializeBuiltinTemplates,
   );
 
   useEffect(() => {

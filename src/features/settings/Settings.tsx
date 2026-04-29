@@ -8,48 +8,53 @@ import { FaMousePointer } from "@react-icons/all-files/fa/FaMousePointer";
 import { FaPalette } from "@react-icons/all-files/fa/FaPalette";
 import { FaEnvelope } from "@react-icons/all-files/fa/FaEnvelope";
 
-const CURSOR_OPTIONS: { id: CursorStyle; name: string; description: string; color: string }[] = [
-  { 
-    id: "default", 
-    name: "Native System", 
-    description: "Fastest response time. Uses your standard OS pointer.", 
-    color: "bg-zinc-800" 
+const CURSOR_OPTIONS: {
+  id: CursorStyle;
+  name: string;
+  description: string;
+  color: string;
+}[] = [
+  {
+    id: "default",
+    name: "Native System",
+    description: "Fastest response time. Uses your standard OS pointer.",
+    color: "bg-zinc-800",
   },
-  { 
-    id: "voxel", 
-    name: "3D Voxel", 
-    description: "Classic white extruded 3D pixel cursor.", 
-    color: "bg-zinc-200" 
+  {
+    id: "voxel",
+    name: "3D Voxel",
+    description: "Classic white extruded 3D pixel cursor.",
+    color: "bg-zinc-200",
   },
-  { 
-    id: "crystal", 
-    name: "Crystal Voxel", 
-    description: "Premium purple crystal 3D extrusion.", 
-    color: "bg-purple-500" 
+  {
+    id: "crystal",
+    name: "Crystal Voxel",
+    description: "Premium purple crystal 3D extrusion.",
+    color: "bg-purple-500",
   },
-  { 
-    id: "neon", 
-    name: "Neon Rainbow", 
-    description: "Glowing outline with a colorful trail.", 
-    color: "bg-gradient-to-r from-cyan-400 to-pink-500" 
+  {
+    id: "neon",
+    name: "Neon Rainbow",
+    description: "Glowing outline with a colorful trail.",
+    color: "bg-gradient-to-r from-cyan-400 to-pink-500",
   },
-  { 
-    id: "glitch", 
-    name: "Cyber Glitch", 
-    description: "Shifting chromatic aberration effect.", 
-    color: "bg-red-500/50" 
+  {
+    id: "glitch",
+    name: "Cyber Glitch",
+    description: "Shifting chromatic aberration effect.",
+    color: "bg-red-500/50",
   },
-  { 
-    id: "circle", 
-    name: "Circle Focus", 
-    description: "Modern magnetic dot and ring system.", 
-    color: "bg-blue-500" 
+  {
+    id: "circle",
+    name: "Circle Focus",
+    description: "Modern magnetic dot and ring system.",
+    color: "bg-blue-500",
   },
-  { 
-    id: "classic", 
-    name: "Retro Pixel", 
-    description: "Flat pixel art pointer from the 90s.", 
-    color: "bg-zinc-400" 
+  {
+    id: "classic",
+    name: "Retro Pixel",
+    description: "Flat pixel art pointer from the 90s.",
+    color: "bg-zinc-400",
   },
 ];
 
@@ -129,11 +134,16 @@ export const Settings = () => {
                 "group relative p-4 rounded-2xl border-2 transition-all text-left flex flex-col gap-3",
                 cursorStyle === option.id
                   ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/10"
-                  : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-white dark:bg-zinc-900/50"
+                  : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-white dark:bg-zinc-900/50",
               )}
             >
               <div className="flex items-center justify-between w-full">
-                <div className={cn("w-10 h-10 rounded-xl shadow-inner flex items-center justify-center", option.color)}>
+                <div
+                  className={cn(
+                    "w-10 h-10 rounded-xl shadow-inner flex items-center justify-center",
+                    option.color,
+                  )}
+                >
                   {/* Visual hint icon */}
                   <div className="w-4 h-4 bg-white/20 rounded-full" />
                 </div>
@@ -143,9 +153,11 @@ export const Settings = () => {
                   </div>
                 )}
               </div>
-              
+
               <div>
-                <h3 className="font-bold text-zinc-800 dark:text-zinc-100">{option.name}</h3>
+                <h3 className="font-bold text-zinc-800 dark:text-zinc-100">
+                  {option.name}
+                </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
                   {option.description}
                 </p>
@@ -178,7 +190,12 @@ export const Settings = () => {
               )}
             >
               <div className="flex items-center justify-between w-full">
-                <div className={cn("w-16 h-10 rounded-xl shadow-inner", option.preview)} />
+                <div
+                  className={cn(
+                    "w-16 h-10 rounded-xl shadow-inner",
+                    option.preview,
+                  )}
+                />
                 {appTheme === option.id && (
                   <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
                     <div className="w-2 h-2 bg-white rounded-full" />
@@ -187,7 +204,9 @@ export const Settings = () => {
               </div>
 
               <div>
-                <h3 className="font-bold text-zinc-800 dark:text-zinc-100">{option.name}</h3>
+                <h3 className="font-bold text-zinc-800 dark:text-zinc-100">
+                  {option.name}
+                </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
                   {option.description}
                 </p>
