@@ -25,11 +25,12 @@ import type { DiagramSourceType } from "../../core/services/diagramService";
 import {
   buildDiagramExportName,
   normalizeSvgMarkup,
+  normalizeMermaidTheme,
   renderMermaidMarkup,
   svgMarkupToImage,
 } from "../editor/diagramRenderUtils";
 
-type DiagramThemePreset = "hc-dark" | "hc-light";
+type DiagramThemePreset = "default" | "dark" | "neutral";
 
 type DiagramTemplate = {
   key: string;
@@ -169,8 +170,36 @@ const TEMPLATES: DiagramTemplate[] = [
 ];
 
 const THEME_PRESETS = {
-  "hc-dark": {
-    label: "High Contrast Dark",
+  default: {
+    label: "Default",
+    containerClass: "bg-slate-50 border-slate-300",
+    mermaid: {
+      theme: "base",
+      themeVariables: {
+        background: "#ffffff",
+        primaryColor: "#eff6ff",
+        primaryTextColor: "#0f172a",
+        primaryBorderColor: "#2563eb",
+        lineColor: "#334155",
+        secondaryColor: "#e2e8f0",
+        tertiaryColor: "#f8fafc",
+        tertiaryTextColor: "#0f172a",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#2563eb",
+        edgeLabelBackground: "#ffffff",
+        mainBkg: "#ffffff",
+        nodeTextColor: "#0f172a",
+        actorTextColor: "#0f172a",
+        noteTextColor: "#0f172a",
+        noteBkgColor: "#ffffff",
+        noteBorderColor: "#2563eb",
+        fontFamily: "Inter, Segoe UI, sans-serif",
+        fontSize: "16px",
+      },
+    },
+  },
+  dark: {
+    label: "Dark",
     containerClass: "bg-slate-950 border-slate-700",
     mermaid: {
       theme: "base",
@@ -197,29 +226,29 @@ const THEME_PRESETS = {
       },
     },
   },
-  "hc-light": {
-    label: "High Contrast Light",
+  neutral: {
+    label: "Neutral",
     containerClass: "bg-white border-slate-300",
     mermaid: {
       theme: "base",
       themeVariables: {
-        background: "#ffffff",
-        primaryColor: "#f8fafc",
+        background: "#e2e8f0",
+        primaryColor: "#ffffff",
         primaryTextColor: "#0f172a",
-        primaryBorderColor: "#1d4ed8",
+        primaryBorderColor: "#334155",
         lineColor: "#334155",
-        secondaryColor: "#e2e8f0",
-        tertiaryColor: "#f1f5f9",
+        secondaryColor: "#f8fafc",
+        tertiaryColor: "#e2e8f0",
         tertiaryTextColor: "#0f172a",
         clusterBkg: "#f8fafc",
-        clusterBorder: "#2563eb",
-        edgeLabelBackground: "#ffffff",
+        clusterBorder: "#334155",
+        edgeLabelBackground: "#f8fafc",
         mainBkg: "#f8fafc",
         nodeTextColor: "#0f172a",
         actorTextColor: "#0f172a",
         noteTextColor: "#0f172a",
         noteBkgColor: "#ffffff",
-        noteBorderColor: "#2563eb",
+        noteBorderColor: "#334155",
         fontFamily: "Inter, Segoe UI, sans-serif",
         fontSize: "16px",
       },
@@ -278,7 +307,7 @@ export const DiagramStudio = () => {
   const [draftName, setDraftName] = useState(DEFAULT_TEMPLATE.label);
   const [draftCode, setDraftCode] = useState(DEFAULT_TEMPLATE.code);
   const [draftThemePreset, setDraftThemePreset] =
-    useState<DiagramThemePreset>("hc-dark");
+    useState<DiagramThemePreset>("dark");
   const [draftSourceType, setDraftSourceType] =
     useState<DiagramSourceType>("mermaid");
   const [draftSvgMarkup, setDraftSvgMarkup] = useState<string | null>(null);
@@ -326,7 +355,9 @@ export const DiagramStudio = () => {
       setDraftName(activeDiagram.name);
       setDraftCode(activeDiagram.code);
       setDraftThemePreset(
-        (activeDiagram.themePreset as DiagramThemePreset) || "hc-dark",
+        normalizeMermaidTheme(
+          activeDiagram.themePreset ?? "dark",
+        ) as DiagramThemePreset,
       );
       setDraftSourceType(activeDiagram.sourceType);
       setDraftSvgMarkup(activeDiagram.svgMarkup);
@@ -340,7 +371,7 @@ export const DiagramStudio = () => {
 
     setDraftName(DEFAULT_TEMPLATE.label);
     setDraftCode(DEFAULT_TEMPLATE.code);
-    setDraftThemePreset("hc-dark");
+    setDraftThemePreset("dark");
     setDraftSourceType("mermaid");
     setDraftSvgMarkup(null);
     setActiveTemplateKey(DEFAULT_TEMPLATE.key);
@@ -550,7 +581,7 @@ export const DiagramStudio = () => {
 
     try {
       const backgroundColor =
-        draftThemePreset === "hc-dark" ? "#020617" : "#ffffff";
+        draftThemePreset === "dark" ? "#020617" : "#ffffff";
       const exportMarkup = normalizeSvgMarkup(activeSvgMarkup, 64);
       const image = await svgMarkupToImage(exportMarkup);
 
@@ -773,8 +804,9 @@ export const DiagramStudio = () => {
               className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm"
               disabled={isSvgDiagram}
             >
-              <option value="hc-dark">High Contrast Dark</option>
-              <option value="hc-light">High Contrast Light</option>
+              <option value="default">Default</option>
+              <option value="dark">Dark</option>
+              <option value="neutral">Neutral</option>
             </select>
 
             <button

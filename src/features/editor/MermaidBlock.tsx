@@ -2,6 +2,7 @@ import { createReactBlockSpec } from "@blocknote/react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   initializeMermaidRenderer,
+  normalizeMermaidTheme,
   renderMermaidMarkup,
 } from "./diagramRenderUtils";
 
@@ -14,7 +15,7 @@ export const MermaidBlock = createReactBlockSpec(
           "flowchart TD\n  A[Start] --> B{Decision}\n  B -- Yes --> C[Do thing]\n  B -- No --> D[Stop]",
       },
       theme: {
-        default: "dark",
+        default: "default",
       },
       align: {
         default: "center",
@@ -50,9 +51,11 @@ export const MermaidBlock = createReactBlockSpec(
         [props.block.id],
       );
 
+      const normalizedTheme = normalizeMermaidTheme(theme);
+
       useLayoutEffect(() => {
-        initializeMermaidRenderer(theme || "dark");
-      }, [theme]);
+        initializeMermaidRenderer(normalizedTheme);
+      }, [normalizedTheme]);
 
       useLayoutEffect(() => {
         if (isEditing) return;
@@ -69,7 +72,7 @@ export const MermaidBlock = createReactBlockSpec(
             try {
               const result = await renderMermaidMarkup({
                 code,
-                theme: (theme || "dark") as any,
+                theme: normalizedTheme,
                 renderId: renderedId,
                 padding: 18,
               });
@@ -98,7 +101,7 @@ export const MermaidBlock = createReactBlockSpec(
           cancelled = true;
           cancelAnimationFrame(frameId);
         };
-      }, [code, isEditing, renderedId, theme]);
+      }, [code, isEditing, renderedId, normalizedTheme]);
 
       const handleResizeStart = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -147,7 +150,7 @@ export const MermaidBlock = createReactBlockSpec(
             <div className="flex gap-2">
               <select
                 className="text-xs bg-zinc-800 text-white rounded px-2 py-1"
-                value={theme}
+                value={normalizedTheme}
                 onChange={(e) =>
                   props.editor.updateBlock(props.block, {
                     props: { theme: e.target.value },

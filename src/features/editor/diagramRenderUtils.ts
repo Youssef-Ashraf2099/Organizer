@@ -2,6 +2,45 @@ import mermaid from "mermaid";
 
 export type MermaidThemePreset = "default" | "dark" | "neutral";
 
+export const normalizeMermaidTheme = (theme: MermaidThemePreset | string) => {
+  if (theme === "default" || theme === "dark" || theme === "neutral") {
+    return theme;
+  }
+
+  if (theme === "contrast-dark" || theme === "hc-dark") {
+    return "dark";
+  }
+
+  if (theme === "contrast-light" || theme === "hc-light" || theme === "light") {
+    return "default";
+  }
+
+  return "dark";
+};
+
+const buildThemeCss = (textColor: string, edgeTextColor: string) => `
+  .nodeLabel,
+  .edgeLabel,
+  .cluster-label text,
+  .messageText,
+  .label,
+  .label text,
+  .label span,
+  .legend text,
+  foreignObject div,
+  foreignObject span,
+  text,
+  tspan {
+    color: ${textColor} !important;
+    fill: ${textColor} !important;
+  }
+
+  .edgeLabel,
+  .edgeLabel span {
+    color: ${edgeTextColor} !important;
+  }
+`;
+
 type RenderMermaidOptions = {
   code: string;
   theme: MermaidThemePreset | string;
@@ -32,6 +71,7 @@ const THEME_CONFIGS = {
       fontFamily: "Inter, Segoe UI, sans-serif",
       fontSize: "16px",
     },
+    themeCSS: buildThemeCss("#0f172a", "#334155"),
   },
   neutral: {
     theme: "base",
@@ -55,6 +95,7 @@ const THEME_CONFIGS = {
       fontFamily: "Inter, Segoe UI, sans-serif",
       fontSize: "16px",
     },
+    themeCSS: buildThemeCss("#0f172a", "#334155"),
   },
   dark: {
     theme: "base",
@@ -78,12 +119,12 @@ const THEME_CONFIGS = {
       fontFamily: "Inter, Segoe UI, sans-serif",
       fontSize: "16px",
     },
+    themeCSS: buildThemeCss("#f8fafc", "#cbd5e1"),
   },
 } as const;
 
 const resolveThemeKey = (theme: MermaidThemePreset | string) => {
-  if (theme === "default" || theme === "neutral") return theme;
-  return "dark";
+  return normalizeMermaidTheme(theme);
 };
 
 export const initializeMermaidRenderer = (
@@ -111,7 +152,6 @@ const extractSvgFrame = (markup: string) => {
   let [x, y, w, h] = viewBox
     ? viewBox.split(/\s+/).map((value) => Number.parseFloat(value))
     : [0, 0, width, height];
-
   if (![x, y, w, h].every((value) => Number.isFinite(value))) {
     return null;
   }
@@ -123,7 +163,6 @@ const extractSvgFrame = (markup: string) => {
 
   return { svg, x, y, w, h };
 };
-
 export const normalizeSvgMarkup = (markup: string, padding = 0) => {
   try {
     const frame = extractSvgFrame(markup);

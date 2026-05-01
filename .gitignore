@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 
 .env
+AI-engine/models/Phi-3-mini-4k-instruct-q4.gguf

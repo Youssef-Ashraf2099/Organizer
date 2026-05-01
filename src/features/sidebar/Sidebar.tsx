@@ -324,7 +324,7 @@ export const Sidebar = ({ view }: { view?: string }) => {
       templateKey: "flowchart",
       code: "flowchart TD\n  A[Start] --> B[New Diagram]",
       svgMarkup: null,
-      themePreset: "hc-dark",
+      themePreset: "dark",
     });
   };
 
