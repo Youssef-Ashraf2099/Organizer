@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod database;
 
 use serde::{Deserialize, Serialize};
@@ -352,6 +353,9 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            app.manage(ai::AiSidecarState::default());
+            ai::spawn_sidecar(app.handle());
+
             maybe_migrate_legacy_db(app.handle());
             let startup_markdown_files = collect_startup_markdown_files();
             app.manage(StartupFileState {
@@ -359,6 +363,13 @@ pub fn run() {
             });
 
             Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Destroyed => {
+                // When the main window is destroyed, we could potentially kill the sidecar
+                // However, doing it on exit is better, which can be done in main.rs or a plugin
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -375,6 +386,9 @@ pub fn run() {
             diagram_delete_folder,
             diagram_save,
             diagram_delete,
+            ai::sync_page_context,
+            ai::ask_ai,
+            ai::agent_task,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
