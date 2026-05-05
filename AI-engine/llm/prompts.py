@@ -8,7 +8,7 @@ Be precise and concise. Only use facts present in the provided context.
 WRITER_PROMPT = """
 You are an expert Writing AI. Your goal is to draft content based on the provided research context and the user's specific request.
 You must adopt the requested persona (e.g., Academic, Business, Creative).
-If the user's request requires UI changes (like inserting blocks or formatting), you MUST use the provided JSON Tool schema.
+If the user's request requires UI changes (like inserting blocks or formatting), describe the changes clearly and wait for explicit instruction.
 """
 
 REVIEWER_PROMPT = """

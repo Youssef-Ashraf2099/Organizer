@@ -1,5 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use std::env;
+use std::net::TcpListener;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use reqwest::Client;
@@ -12,10 +14,19 @@ pub struct SyncContextRequest {
     content_type: String,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct ChatHistoryMessage {
+    role: String,
+    content: String,
+}
+
 #[derive(Serialize)]
 pub struct ChatRequest {
     page_id: String,
     message: String,
+    history: Vec<ChatHistoryMessage>,
+    page_content: String,
+    allow_tools: bool,
 }
 
 #[derive(Serialize)]
@@ -27,6 +38,7 @@ pub struct AgentRequest {
 pub struct AiSidecarState {
     #[allow(dead_code)]
     process: Mutex<Option<Child>>,
+    base_url: Mutex<String>,
     client: Client,
 }
 
@@ -45,20 +57,56 @@ impl Default for AiSidecarState {
     fn default() -> Self {
         Self {
             process: Mutex::new(None),
+            base_url: Mutex::new("http://127.0.0.1:8000".to_string()),
             client: Client::new(),
         }
     }
 }
 
+fn pick_available_port() -> u16 {
+    const DEFAULT_PORTS: [u16; 3] = [8000, 8001, 8002];
+    if let Ok(value) = env::var("AI_PORT") {
+        if let Ok(port) = value.parse::<u16>() {
+            return port;
+        }
+    }
+
+    for port in DEFAULT_PORTS {
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
+
+    8000
+}
+
+fn get_base_url(state: &AiSidecarState) -> String {
+    state
+        .base_url
+        .lock()
+        .map(|url| url.clone())
+        .unwrap_or_else(|_| "http://127.0.0.1:8000".to_string())
+}
+
 pub fn spawn_sidecar(app: &AppHandle) {
-    let mut state = app.state::<AiSidecarState>();
+    let state = app.state::<AiSidecarState>();
+    let port = pick_available_port();
+    if let Ok(mut url) = state.base_url.lock() {
+        *url = format!("http://127.0.0.1:{}", port);
+    }
     
     // Attempt to spawn the Python process.
     // In a production environment, this would point to a bundled executable.
     // For development, we assume running `python` or `uvicorn` in the `ai-engine` folder.
     #[cfg(debug_assertions)]
     let child = Command::new("python")
-        .args(["-m", "uvicorn", "main:app", "--port", "8000"])
+        .args([
+            "-m",
+            "uvicorn",
+            "main:app",
+            "--port",
+            &port.to_string(),
+        ])
         .current_dir("../ai-engine")
         .spawn();
 
@@ -101,7 +149,7 @@ pub async fn sync_page_context(
 
     let res = state
         .client
-        .post("http://127.0.0.1:8000/sync/context")
+        .post(format!("{}/sync/context", get_base_url(&state)))
         .json(&req)
         .send()
         .await
@@ -116,15 +164,21 @@ pub async fn ask_ai(
     state: State<'_, AiSidecarState>,
     page_id: String,
     prompt: String,
+    history: Vec<ChatHistoryMessage>,
+    page_content: String,
+    allow_tools: bool,
 ) -> Result<String, String> {
     let req = ChatRequest {
         page_id,
         message: prompt,
+        history,
+        page_content,
+        allow_tools,
     };
 
     let res = state
         .client
-        .post("http://127.0.0.1:8000/chat/")
+        .post(format!("{}/chat/", get_base_url(&state)))
         .json(&req)
         .send()
         .await
@@ -148,7 +202,7 @@ pub async fn agent_task(
 
     let res = state
         .client
-        .post("http://127.0.0.1:8000/agent/")
+        .post(format!("{}/agent/", get_base_url(&state)))
         .json(&req)
         .send()
         .await

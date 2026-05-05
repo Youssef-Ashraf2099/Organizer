@@ -8,10 +8,12 @@ import logging
 from api.routes_sync import router as sync_router
 from api.routes_chat import router as chat_router
 from api.routes_agent import router as agent_router
+from llm.engine import engine
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("uvicorn.access").disabled = True
 
 app = FastAPI(title="Omni AI Engine", version="1.0.0")
 
@@ -42,7 +44,15 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "model_loaded": engine.is_loaded(),
+        "model_path": engine.model_path,
+        "n_ctx": engine.n_ctx,
+        "n_threads": engine.n_threads,
+        "n_gpu_layers": engine.n_gpu_layers,
+        "n_batch": engine.n_batch,
+    }
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

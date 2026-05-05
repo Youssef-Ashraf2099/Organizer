@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import Database from "@tauri-apps/plugin-sql";
-import { DB_URL } from "../db/sqlite";
+import { getSharedDb } from "../db/sqlite";
 
 export interface AssetInfo {
   id: string;
@@ -56,7 +55,7 @@ export async function uploadFileFromPicker(
   });
 
   // Store in database
-  const db = await Database.load(DB_URL);
+  const db = await getSharedDb();
   await db.execute(
     "INSERT INTO assets (id, page_id, file_path, file_name, file_type, file_size, mime_type) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
@@ -88,7 +87,7 @@ export async function uploadFileFromPath(
   });
 
   // Store in database
-  const db = await Database.load(DB_URL);
+  const db = await getSharedDb();
   await db.execute(
     "INSERT INTO assets (id, page_id, file_path, file_name, file_type, file_size, mime_type) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
@@ -126,7 +125,7 @@ export async function uploadFileFromBytes(
   });
 
   // Store in database
-  const db = await Database.load(DB_URL);
+  const db = await getSharedDb();
   await db.execute(
     "INSERT INTO assets (id, page_id, file_path, file_name, file_type, file_size, mime_type) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
@@ -189,7 +188,7 @@ export async function deleteAsset(
   await invoke("delete_asset_file", { filePath });
 
   // Delete from database
-  const db = await Database.load(DB_URL);
+  const db = await getSharedDb();
   await db.execute("DELETE FROM assets WHERE id = $1", [assetId]);
 }
 
@@ -197,7 +196,7 @@ export async function deleteAsset(
  * Get asset by ID
  */
 export async function getAsset(assetId: string): Promise<Asset | null> {
-  const db = await Database.load(DB_URL);
+  const db = await getSharedDb();
   const rows = await db.select<Asset[]>("SELECT * FROM assets WHERE id = $1", [
     assetId,
   ]);
@@ -209,7 +208,7 @@ export async function getAsset(assetId: string): Promise<Asset | null> {
  * Get all assets for a page
  */
 export async function getPageAssets(pageId: string): Promise<Asset[]> {
-  const db = await Database.load(DB_URL);
+  const db = await getSharedDb();
   return await db.select<Asset[]>(
     "SELECT * FROM assets WHERE page_id = $1 ORDER BY created_at DESC",
     [pageId],

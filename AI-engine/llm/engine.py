@@ -6,31 +6,56 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class LLMEngine:
-    def __init__(self, model_path: str = "./models/Phi-3-mini-4k-instruct-q4.gguf"):
+    def __init__(self, model_path: str = "./Memory/models/Phi-3-mini-4k-instruct-q4.gguf"):
         self.model_path = model_path
         self.llm = None
+        self.n_ctx = int(os.getenv("AI_N_CTX", "4096"))
+        self.n_threads = int(os.getenv("AI_N_THREADS", "4"))
+        self.n_gpu_layers = int(os.getenv("AI_N_GPU_LAYERS", "0"))
+        self.n_batch = int(os.getenv("AI_N_BATCH", "256"))
+        self.preload = os.getenv("AI_PRELOAD_MODEL", "1") == "1"
+        self._load_error = None
+
+        if self.preload:
+            self._load_model()
         
-        # Load the model if it exists
-        if os.path.exists(self.model_path):
-            logger.info(f"Loading LLM from {self.model_path}")
-            try:
-                self.llm = Llama(
-                    model_path=self.model_path,
-                    n_ctx=4096,
-                    n_threads=4,
-                    verbose=False
-                )
-                logger.info("LLM loaded successfully.")
-            except Exception as e:
-                logger.error(f"Failed to load LLM: {e}")
-        else:
-            logger.warning(f"Model file not found at {self.model_path}. Running in MOCK mode.")
+    def _load_model(self) -> None:
+        if self.llm is not None:
+            return
+        if not os.path.exists(self.model_path):
+            logger.warning(
+                f"Model file not found at {self.model_path}. Running in MOCK mode."
+            )
+            return
+
+        logger.info(f"Loading LLM from {self.model_path}")
+        try:
+            self.llm = Llama(
+                model_path=self.model_path,
+                n_ctx=self.n_ctx,
+                n_threads=self.n_threads,
+                n_gpu_layers=self.n_gpu_layers,
+                n_batch=self.n_batch,
+                verbose=False,
+            )
+            logger.info("LLM loaded successfully.")
+        except Exception as e:
+            self._load_error = str(e)
+            logger.error(f"Failed to load LLM: {e}")
+
+    def ensure_loaded(self) -> None:
+        if self.llm is None:
+            self._load_model()
+
+    def is_loaded(self) -> bool:
+        return self.llm is not None
 
     async def generate_response(self, system_prompt: str, user_prompt: str, json_schema: dict = None) -> str:
         """
         Asynchronously generates a response from the LLM.
         If json_schema is provided, enforces JSON output via grammar or prompt structure.
         """
+        self.ensure_loaded()
         if not self.llm:
             logger.warning("LLM is not loaded. Returning mock response.")
             if json_schema:

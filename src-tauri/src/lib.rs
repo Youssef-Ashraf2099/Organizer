@@ -35,6 +35,31 @@ fn sqlite_file_name() -> &'static str {
     }
 }
 
+#[tauri::command]
+fn reset_local_db(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {e}"))?;
+
+    let db_name = sqlite_file_name();
+    let db_path = app_data_dir.join(db_name);
+    let wal_path = app_data_dir.join(format!("{db_name}-wal"));
+    let shm_path = app_data_dir.join(format!("{db_name}-shm"));
+
+    if db_path.exists() {
+        fs::remove_file(&db_path).map_err(|e| format!("Failed to remove db: {e}"))?;
+    }
+    if wal_path.exists() {
+        fs::remove_file(&wal_path).map_err(|e| format!("Failed to remove wal: {e}"))?;
+    }
+    if shm_path.exists() {
+        fs::remove_file(&shm_path).map_err(|e| format!("Failed to remove shm: {e}"))?;
+    }
+
+    Ok(())
+}
+
 fn maybe_migrate_legacy_db(app: &tauri::AppHandle) {
     let app_data_dir = match app.path().app_data_dir() {
         Ok(dir) => dir,
@@ -364,7 +389,7 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| match event {
+        .on_window_event(|_window, event| match event {
             tauri::WindowEvent::Destroyed => {
                 // When the main window is destroyed, we could potentially kill the sidecar
                 // However, doing it on exit is better, which can be done in main.rs or a plugin
@@ -375,6 +400,7 @@ pub fn run() {
             greet,
             get_launch_markdown_files,
             read_markdown_file,
+            reset_local_db,
             upload_file,
             upload_asset_bytes,
             get_asset_url,

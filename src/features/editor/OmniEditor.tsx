@@ -13,9 +13,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { usePageStore } from "../../core/store/pageStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
-import Database from "@tauri-apps/plugin-sql";
-import { DB_URL } from "../../core/db/sqlite";
+import { getSharedDb } from "../../core/db/sqlite";
 import { MathBlock } from "./MathBlock";
 import { ImageBlock } from "./ImageBlock";
 import { VideoBlock } from "./VideoBlock";
@@ -201,7 +199,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
           return;
         }
 
-        const db = await Database.load(DB_URL);
+        const db = await getSharedDb();
         const json = JSON.stringify(content);
         const existing = await db.select<any[]>(
           "SELECT id FROM blocks WHERE page_id = $1",
@@ -245,7 +243,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
       try {
         let loaded: PartialBlock[] = [];
         if (isTauriRuntime()) {
-          const db = await Database.load(DB_URL);
+          const db = await getSharedDb();
           const rows = await db.select<any[]>(
             "SELECT content FROM blocks WHERE page_id = $1",
             [activePageId],
@@ -562,39 +560,161 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
     };
   }, [editor, activePageId]);
 
-  // Handle AI Tool Commands
+  // Expose editor snapshot for the AI undo system
+  useEffect(() => {
+    if (!editor) return;
+    (window as any).__editorSnapshot = editor.document;
+    const unsubscribe = editor.onChange(() => {
+      (window as any).__editorSnapshot = editor.document;
+    });
+    return () => unsubscribe?.();
+  }, [editor]);
+
+  // Respond to getPageContent event (for AI panel context)
+  useEffect(() => {
+    if (!editor) return;
+    const handleGetContent = () => {
+      const blocks = editor.document;
+      const md = blocks
+        .map((block: any) => {
+          const text =
+            typeof block.content === "string"
+              ? block.content
+              : Array.isArray(block.content)
+              ? block.content.map((s: any) => s.text ?? "").join("")
+              : "";
+          switch (block.type) {
+            case "heading":
+              return `${'#'.repeat(block.props?.level ?? 1)} ${text}`;
+            case "bulletListItem":
+              return `- ${text}`;
+            case "numberedListItem":
+              return `1. ${text}`;
+            case "mermaid":
+              return `[mermaid]: ${block.props?.code ?? ""}`;
+            case "math":
+              return `[math]: ${block.props?.latex ?? ""}`;
+            default:
+              return text;
+          }
+        })
+        .join("\n");
+      (window as any).__currentPageContent = md;
+    };
+    window.addEventListener("getPageContent", handleGetContent);
+    return () => window.removeEventListener("getPageContent", handleGetContent);
+  }, [editor]);
+
+  // Handle AI Tool Commands (DOM event — works in both Tauri & web)
   useEffect(() => {
     if (!editor || !activePageId) return;
-    if (!isTauriRuntime()) return;
 
-    const unlisten = listen<any>("aiToolCommand", (event) => {
-      try {
-        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
-        if (payload.action === "insert_block") {
-          editor.insertBlocks(
-            [
-              {
-                type: payload.params.type || "paragraph",
-                content: payload.params.content || "",
-              } as any
-            ],
-            editor.getTextCursorPosition().block,
-            "after"
-          );
-          setAiPendingChanges(true);
-        } else if (payload.action === "replace_text") {
-           // Basic replace logic for stub, would require traversing blocks in reality
-           setAiPendingChanges(true);
+    const applyCommand = (action: string, params: Record<string, any>) => {
+      if (action === "insert_block") {
+        const blocks = editor.document;
+        const anchor = blocks[blocks.length - 1];
+        const newBlock: any = {
+          type: params.type || "paragraph",
+          content: params.content || "",
+        };
+        if (params.level) newBlock.props = { level: params.level };
+        if (anchor) {
+          editor.insertBlocks([newBlock], anchor, "after");
         }
-      } catch (e) {
-        console.error("Failed to parse AI Tool Command", e);
+        setAiPendingChanges(true);
+      } else if (action === "replace_all" && params.markdown) {
+        const parsed = markdownToBlocks(params.markdown as string);
+        const next =
+          parsed.length > 0
+            ? parsed
+            : [{ type: "paragraph", content: params.markdown }];
+        const existing = editor.document.map((b: any) => b.id);
+        if (existing.length > 0) editor.removeBlocks(existing);
+        const first = editor.document[0];
+        if (first) {
+          editor.updateBlock(first, next[0] as any);
+          if (next.length > 1) editor.insertBlocks(next.slice(1), first, "after");
+        } else {
+          editor.insertBlocks(next, editor.document[0] ?? null, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(true);
+      } else if (action === "replace_text" && params.find && params.replace !== undefined) {
+        const blocks = editor.document;
+        blocks.forEach((block: any) => {
+          if (Array.isArray(block.content)) {
+            const full = block.content.map((s: any) => s.text ?? "").join("");
+            if (full.includes(params.find as string)) {
+              editor.updateBlock(block, {
+                content: full.replace(params.find as string, params.replace as string),
+              } as any);
+            }
+          }
+        });
+        setAiPendingChanges(true);
       }
-    });
+    };
+
+    // DOM-based listener (used by AiAgentPanel)
+    const handleDomCommand = (e: Event) => {
+      const detail = (e as CustomEvent<{ action: string; params: Record<string, any> }>).detail;
+      if (!detail) return;
+      try {
+        applyCommand(detail.action, detail.params);
+      } catch (err) {
+        console.error("AI DOM command error:", err);
+      }
+    };
+
+    window.addEventListener("aiToolCommand", handleDomCommand);
+
+    // Tauri event listener (from Rust bridge) — uses dynamic import to avoid ESM issues
+    let tauriUnlisten: (() => void) | null = null;
+    if (isTauriRuntime()) {
+      import("@tauri-apps/api/event").then(({ listen: tauriListen }) => {
+        tauriListen<any>("aiToolCommand", (event: any) => {
+          try {
+            const payload =
+              typeof event.payload === "string"
+                ? JSON.parse(event.payload)
+                : event.payload;
+            applyCommand(payload.action, payload.params ?? {});
+          } catch (e) {
+            console.error("Failed to parse Tauri AI Tool Command", e);
+          }
+        }).then((fn: () => void) => {
+          tauriUnlisten = fn;
+        });
+      });
+    }
+
+    // Undo handler — restores editor to a previous snapshot
+    const handleUndo = (e: Event) => {
+      const snapshot = (e as CustomEvent<{ snapshot: any[] }>).detail?.snapshot;
+      if (!snapshot || !Array.isArray(snapshot)) return;
+      try {
+        const existing = editor.document.map((b: any) => b.id);
+        if (existing.length > 0) editor.removeBlocks(existing);
+        const first = editor.document[0];
+        if (first && snapshot.length > 0) {
+          editor.updateBlock(first, snapshot[0] as any);
+          if (snapshot.length > 1)
+            editor.insertBlocks(snapshot.slice(1), first, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(false);
+      } catch (err) {
+        console.error("AI undo error:", err);
+      }
+    };
+    window.addEventListener("aiUndoChange", handleUndo);
 
     return () => {
-      unlisten.then((f) => f());
+      window.removeEventListener("aiToolCommand", handleDomCommand);
+      window.removeEventListener("aiUndoChange", handleUndo);
+      tauriUnlisten?.();
     };
-  }, [editor, activePageId]);
+  }, [editor, activePageId, debouncedSave]);
 
   // Handle Insert Image from URL
   const handleInsertImageUrl = () => {
