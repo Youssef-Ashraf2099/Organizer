@@ -13,6 +13,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { usePageStore } from "../../core/store/pageStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import Database from "@tauri-apps/plugin-sql";
 import { DB_URL } from "../../core/db/sqlite";
 import { MathBlock } from "./MathBlock";
@@ -176,6 +177,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
   const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
+  const [aiPendingChanges, setAiPendingChanges] = useState(false);
 
   useEffect(() => {
     if (!exportToast) return;
@@ -554,6 +556,40 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
         }
       },
     );
+
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [editor, activePageId]);
+
+  // Handle AI Tool Commands
+  useEffect(() => {
+    if (!editor || !activePageId) return;
+    if (!isTauriRuntime()) return;
+
+    const unlisten = listen<any>("aiToolCommand", (event) => {
+      try {
+        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+        if (payload.action === "insert_block") {
+          editor.insertBlocks(
+            [
+              {
+                type: payload.params.type || "paragraph",
+                content: payload.params.content || "",
+              } as any
+            ],
+            editor.getTextCursorPosition().block,
+            "after"
+          );
+          setAiPendingChanges(true);
+        } else if (payload.action === "replace_text") {
+           // Basic replace logic for stub, would require traversing blocks in reality
+           setAiPendingChanges(true);
+        }
+      } catch (e) {
+        console.error("Failed to parse AI Tool Command", e);
+      }
+    });
 
     return () => {
       unlisten.then((f) => f());
@@ -1424,6 +1460,31 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* AI Changes Action Bar */}
+      {aiPendingChanges && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white dark:bg-zinc-800 border border-blue-500/30 shadow-2xl shadow-blue-500/20 rounded-full px-6 py-3 flex items-center gap-4 animate-in slide-in-from-bottom-5">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            ✨ AI updated the page
+          </span>
+          <div className="w-px h-4 bg-zinc-300 dark:bg-zinc-700"></div>
+          <button
+            onClick={() => {
+              editor?.undo();
+              setAiPendingChanges(false);
+            }}
+            className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
+          >
+            Undo
+          </button>
+          <button
+            onClick={() => setAiPendingChanges(false)}
+            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+          >
+            Accept
+          </button>
         </div>
       )}
     </motion.div>

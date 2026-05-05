@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import logging
-from memory.vector_store import vector_store
+from Memory.vector_store import vector_store
 import uuid
 
 router = APIRouter()

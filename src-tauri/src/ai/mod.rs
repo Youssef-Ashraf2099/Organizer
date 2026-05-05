@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use reqwest::Client;
@@ -136,6 +136,7 @@ pub async fn ask_ai(
 
 #[tauri::command]
 pub async fn agent_task(
+    app: AppHandle,
     state: State<'_, AiSidecarState>,
     page_id: String,
     task: String,
@@ -154,5 +155,20 @@ pub async fn agent_task(
         .map_err(|e| e.to_string())?;
 
     let text = res.text().await.map_err(|e| e.to_string())?;
+    
+    // Parse the response to see if there's a tool command in the draft
+    if let Ok(json_response) = serde_json::from_str::<serde_json::Value>(&text) {
+        if let Some(draft) = json_response.get("draft").and_then(|d| d.as_str()) {
+            // Check if the draft itself is a tool command JSON
+            if draft.trim().starts_with('{') {
+                if let Ok(tool_command) = serde_json::from_str::<serde_json::Value>(draft) {
+                    if tool_command.get("action").is_some() {
+                        let _ = app.emit("aiToolCommand", tool_command);
+                    }
+                }
+            }
+        }
+    }
+    
     Ok(text)
 }

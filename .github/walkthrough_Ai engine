@@ -10,22 +10,30 @@ I have successfully initialized the local Python AI Engine and built the Rust (T
   - `api/routes_sync.py`: Implemented a stubbed `POST /sync/context` that receives page data and uses ChromaDB.
   - `api/routes_chat.py` & `api/routes_agent.py`: Created stubs for standard Q&A and agent task interactions.
 - **Memory Management**: 
-  - `memory/vector_store.py`: Built a basic stub for the asynchronous wrapper around ChromaDB. The actual database schema and dual-database system (ChromaDB + SQLite state store) have not been designed yet.
+  - `memory/vector_store.py`: Built a basic stub for the asynchronous wrapper around ChromaDB. The actual database schema and dual-database system (ChromaDB + SQLite state store) are now fully structured!
+  - `memory/state_store.py`: Implemented local SQLite database using Python's sqlite3 to manage LangGraph states persistently.
+  - `memory/migrations.py`: Implemented a migration system to handle future database updates reliably.
 - **LangGraph Orchestration**: 
-  - `graph/workflow.py` & `graph/state.py`: Created the LangGraph workflow connecting the `Researcher`, `Writer`, and `Reviewer` nodes in a cyclical graph.
+  - `graph/workflow.py`, `graph/state.py` & Nodes: Fully connected the `Researcher`, `Writer`, and `Reviewer` nodes with actual LLM prompting via the engine.
 - **Dependencies**: Created `requirements.txt` listing essential packages (`fastapi`, `langgraph`, `chromadb`, `llama-cpp-python`, etc.).
+- **LLM Engine & Prompts**:
+  - `llm/engine.py`: Added an async wrapper to run `Phi-3-mini-4k-instruct-q4.gguf` efficiently using `llama-cpp-python` threads.
+  - `llm/prompts.py`: Added context-rich personas for each LangGraph agent.
+- **Tool Calling System**:
+  - `tools/tool_registry.py`: Structured dynamic JSON schemas (e.g., `insert_block`, `replace_text`) injected right into the LLM logic.
 
 ### 🌉 Rust Backend Bridge (Tauri)
-- **`ai/mod.rs`**: Built the `AiSidecarState` and HTTP client logic (`reqwest`) to communicate with the local Python server.
+- **`ai/mod.rs`**: Built the `AiSidecarState` and HTTP client logic (`reqwest`) to communicate with the local Python server. It now also successfully parses Tool Commands from Python and relays them to the UI via `app.emit("aiToolCommand")`.
 - **Process Management**: Implemented `spawn_sidecar()` to spawn the Python backend on app startup, and a custom `Drop` trait to automatically kill the python sidecar when the Tauri window is closed.
 - **Tauri Commands**: Added new commands (`sync_page_context`, `ask_ai`, `agent_task`) so the React frontend can trigger Python operations seamlessly through the OS layer.
 - **Integration**: Integrated the AI module directly into the main `tauri::Builder` setup lifecycle inside `lib.rs`.
 
+### ⚛️ Frontend React Integration
+- **`OmniEditor.tsx`**: Hooked up the `aiToolCommand` event listener to catch backend Tool commands.
+- **AI UI state**: Developed an intuitive "Accept/Undo" UI overlay inside the editor whenever the AI pushes live content changes to the page.
+
 ## Next Steps
 With the infrastructure initialized, we can focus on:
-1. **Designing the Database**: Designing the exact schema and interactions for the dual-database system (ChromaDB vectors + local SQLite for LangGraph state).
-2. Connecting a real, local `.gguf` model using `llama-cpp-python` in the AI Engine.
-3. Building out the Tool Calling mechanism where Python agents return JSON schemas dynamically.
-4. Hooking up the React frontend listener to parse the incoming Tool Calling commands emitted by Rust.
-
-Let me know if you would like to test this setup locally or if you'd like to dive into the LangGraph persona configuration!
+1. Actually running the AI backend and sending test queries to see it parse documents and orchestrate UI generation locally.
+2. Expanding the available Tool Schema (e.g. `create_calendar_event` or `format_page`).
+3. Enhancing error handling between the Rust HTTP requests to the Python sidecar.

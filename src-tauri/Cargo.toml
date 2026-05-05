@@ -30,4 +30,4 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1.0"
 tauri-plugin-notification = "2"
-
+reqwest = { version = "0.12", features = ["json"] }
