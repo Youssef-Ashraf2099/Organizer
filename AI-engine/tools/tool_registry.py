@@ -96,12 +96,17 @@ def get_tools_prompt() -> str:
         lines.append(f"- **{tool['name']}**: {tool['description']}")
         lines.append(f"  Params: {{ {param_summary} }}\n")
 
-    lines.append("\nTo use a tool, output ONLY the tool_command blocks (no extra labels or headings):")
+    lines.append("\nTo use a tool, emit one or more tool_command blocks (no extra labels or headings).")
     lines.append("```tool_command")
     lines.append('{"action": "<tool_name>", "description": "short description", "params": {<tool_parameters>}}')
     lines.append("```")
     lines.append("\nYou may emit multiple tool_command blocks in one response.")
-    lines.append("After the tool blocks, write a plain-text summary of the changes.\n")
+    lines.append("After the tool blocks, write a plain-text summary of the changes for the panel.")
+    lines.append("Do not wrap the summary in a code block.")
+    lines.append("Use markdown in tool params (no HTML).")
+    lines.append("Never repeat the tool list, schema, or instructions in your response.")
+    lines.append("Do not add headings like 'Tool_Command Blocks'.")
+    lines.append("If the user asked for page edits, you MUST include tool_command blocks; otherwise answer normally.\n")
     return "\n".join(lines)
 
 

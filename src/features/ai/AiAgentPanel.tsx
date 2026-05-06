@@ -402,7 +402,7 @@ export const AiAgentPanel = () => {
 
           {/* ── Pending Changes Bar ── */}
           <AnimatePresence>
-            {mode === "agent" && pendingChanges.length > 0 && (
+            {pendingChanges.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}

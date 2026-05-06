@@ -63,6 +63,13 @@ interface AiAgentState {
 const ENGINE_PORT = import.meta.env.VITE_AI_PORT || "8000";
 const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 
+const TOOL_INTENT_REGEX =
+  /\b(add|insert|write|rewrite|update|edit|improve|format|create|remove|delete|replace|append|prepend|heading|section|table of contents|toc|list|bullet)\b/i;
+
+function shouldAllowTools(message: string): boolean {
+  return TOOL_INTENT_REGEX.test(message);
+}
+
 type HealthResponse = {
   status: string;
   model_loaded?: boolean;
@@ -356,6 +363,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     const requestId = crypto.randomUUID();
     activeRequestId = requestId;
     canceledRequestId = null;
+    const allowTools = mode === "agent" || shouldAllowTools(userMessage);
 
     // 1 · append user bubble
     const userMsg: ChatMessage = {
@@ -394,7 +402,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
           userMessage,
           messages,
           pageContent,
-          false,
+          allowTools,
           activeAbort.signal,
         );
         response = r.response;
@@ -436,7 +444,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     }
 
     // 5 · append assistant bubble
-    if (mode === "chat") {
+    if (mode === "chat" && !allowTools) {
       toolCommands = [];
     }
 
@@ -462,7 +470,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     activeRequestId = null;
 
     // 6 · apply changes + build pending list
-    if (mode === "agent" && toolCommands.length > 0) {
+    if (toolCommands.length > 0) {
       const pending: PendingChange[] = toolCommands.map((cmd) => ({
         id: crypto.randomUUID(),
         description:

@@ -15,7 +15,13 @@ async def writer_node(state: AgentState):
     persona = state.get("persona", "General Assistant")
     page_content = state.get("page_content", "")
     
-    system_prompt = f"{WRITER_PROMPT}\n\nPersona: {persona}\n\n{get_tools_prompt()}"
+    system_prompt = (
+        f"{WRITER_PROMPT}\n\nPersona: {persona}\n\n{get_tools_prompt()}\n\n"
+        "Rules:\n"
+        "- If the task asks for page edits or writing, you MUST emit tool_command blocks.\n"
+        "- After the tool blocks, provide a short summary for the panel.\n"
+        "- Never repeat the tool list or schema."
+    )
     user_prompt = f"Page Content:\n{page_content}\n\nContext:\n{context}\n\nTask:\n{task}"
     
     response = await engine.generate_response(system_prompt, user_prompt)
