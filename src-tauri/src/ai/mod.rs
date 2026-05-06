@@ -33,6 +33,7 @@ pub struct ChatRequest {
 pub struct AgentRequest {
     page_id: String,
     task: String,
+    page_content: String,
 }
 
 pub struct AiSidecarState {
@@ -194,10 +195,12 @@ pub async fn agent_task(
     state: State<'_, AiSidecarState>,
     page_id: String,
     task: String,
+    page_content: String,
 ) -> Result<String, String> {
     let req = AgentRequest {
         page_id,
         task,
+        page_content,
     };
 
     let res = state
@@ -224,5 +227,18 @@ pub async fn agent_task(
         }
     }
     
+    Ok(text)
+}
+
+#[tauri::command]
+pub async fn ai_health(state: State<'_, AiSidecarState>) -> Result<String, String> {
+    let res = state
+        .client
+        .get(format!("{}/health", get_base_url(&state)))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let text = res.text().await.map_err(|e| e.to_string())?;
     Ok(text)
 }

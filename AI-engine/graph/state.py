@@ -8,6 +8,7 @@ class AgentState(TypedDict):
     messages: Annotated[List[dict], operator.add]
     page_id: str
     task: str
+    page_content: str
     context: str
     draft: str
     persona: str

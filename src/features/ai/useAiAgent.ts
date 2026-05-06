@@ -76,9 +76,13 @@ type HealthResponse = {
 let activeAbort: AbortController | null = null;
 let activeRequestId: string | null = null;
 let canceledRequestId: string | null = null;
+let activeStreamTimer: number | null = null;
 
 // ─── Tauri invoke wrapper ─────────────────────────────────────────────────────
-async function tauriInvoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+async function tauriInvoke<T>(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
@@ -109,7 +113,7 @@ function dispatchTool(cmd: AiToolCommand) {
   window.dispatchEvent(
     new CustomEvent("aiToolCommand", {
       detail: { action: cmd.action, params: cmd.params },
-    })
+    }),
   );
 }
 
@@ -138,7 +142,7 @@ async function callChat(
   history: ChatMessage[],
   pageContent: string,
   allowTools: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ response: string; tool_commands: AiToolCommand[] }> {
   if (isTauri()) {
     // Rust ask_ai → POST /chat/ → returns raw JSON string from the engine
@@ -180,22 +184,36 @@ async function callChat(
 // ─── Call /agent/ (LangGraph autonomous mode) ─────────────────────────────────
 async function callAgent(
   pageId: string,
-  task: string
+  task: string,
+  pageContent: string,
 ): Promise<{ response: string; tool_commands: AiToolCommand[] }> {
   const extractFromDraft = (draft: string, feedback: string) => {
     if (draft.trim().startsWith("{")) {
       try {
         const cmd = JSON.parse(draft);
-        if (cmd.action) return { response: feedback || "Done.", tool_commands: [cmd] };
-      } catch { /* not JSON */ }
+        if (cmd.action)
+          return { response: feedback || "Done.", tool_commands: [cmd] };
+      } catch {
+        /* not JSON */
+      }
     }
     return { response: draft, tool_commands: [] as AiToolCommand[] };
   };
 
   if (isTauri()) {
-    const raw = await tauriInvoke<string>("agent_task", { pageId, task });
+    const raw = await tauriInvoke<string>("agent_task", {
+      pageId,
+      task,
+      pageContent,
+    });
     try {
       const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.tool_commands)) {
+        return {
+          response: parsed.response ?? parsed.feedback ?? "Done.",
+          tool_commands: parsed.tool_commands,
+        };
+      }
       return extractFromDraft(parsed.draft ?? "", parsed.feedback ?? "");
     } catch {
       return { response: raw, tool_commands: [] };
@@ -205,11 +223,50 @@ async function callAgent(
   const res = await fetch(`${ENGINE_URL}/agent/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page_id: pageId, task }),
+    body: JSON.stringify({ page_id: pageId, task, page_content: pageContent }),
   });
   if (!res.ok) throw new Error(`Agent ${res.status}: ${await res.text()}`);
   const data = await res.json();
+  if (Array.isArray(data.tool_commands)) {
+    return {
+      response: data.response ?? data.feedback ?? "Done.",
+      tool_commands: data.tool_commands,
+    };
+  }
   return extractFromDraft(data.draft ?? "", data.feedback ?? "");
+}
+
+function streamMessageContent(
+  messageId: string,
+  content: string,
+  update: (updater: (state: AiAgentState) => Partial<AiAgentState>) => void,
+) {
+  if (activeStreamTimer) {
+    window.clearInterval(activeStreamTimer);
+    activeStreamTimer = null;
+  }
+
+  let index = 0;
+  const durationMs = Math.min(12000, Math.max(1400, content.length * 30));
+  const intervalMs = 45;
+  const steps = Math.max(1, Math.ceil(durationMs / intervalMs));
+  const step = Math.max(1, Math.ceil(content.length / steps));
+  activeStreamTimer = window.setInterval(() => {
+    index = Math.min(content.length, index + step);
+    update((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, content: content.slice(0, index) }
+          : msg,
+      ),
+    }));
+    if (index >= content.length) {
+      if (activeStreamTimer) {
+        window.clearInterval(activeStreamTimer);
+        activeStreamTimer = null;
+      }
+    }
+  }, intervalMs);
 }
 
 // ─── Active page ID (read from persisted pageStore) ───────────────────────────
@@ -256,17 +313,32 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
         },
       ],
     }));
+
+    if (activeStreamTimer) {
+      window.clearInterval(activeStreamTimer);
+      activeStreamTimer = null;
+    }
   },
 
-  openPanel:    () => set({ isOpen: true }),
-  closePanel:   () => set({ isOpen: false }),
-  togglePanel:  () => set((s) => ({ isOpen: !s.isOpen })),
-  setMode:      (mode) => set({ mode }),
+  openPanel: () => set({ isOpen: true }),
+  closePanel: () => set({ isOpen: false }),
+  togglePanel: () => set((s) => ({ isOpen: !s.isOpen })),
+  setMode: (mode) => set({ mode }),
   dismissError: () => set({ errorMessage: null, status: "idle" }),
   clearMessages: () => set({ messages: [], pendingChanges: [] }),
   refreshHealth: async () => {
     set({ modelState: "loading" });
     try {
+      if (isTauri()) {
+        const raw = await tauriInvoke<string>("ai_health", {});
+        const data: HealthResponse = JSON.parse(raw);
+        set({
+          modelState: data.model_loaded ? "ready" : "loading",
+          modelInfo: data,
+        });
+        return;
+      }
+
       const res = await fetch(`${ENGINE_URL}/health`);
       if (!res.ok) throw new Error("health check failed");
       const data: HealthResponse = await res.json();
@@ -287,8 +359,10 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
 
     // 1 · append user bubble
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(), role: "user",
-      content: userMessage, timestamp: Date.now(),
+      id: crypto.randomUUID(),
+      role: "user",
+      content: userMessage,
+      timestamp: Date.now(),
     };
     set((s) => ({
       messages: [...s.messages, userMsg],
@@ -297,8 +371,8 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     }));
 
     // 2 · gather context + snapshot
-    const pageContent   = await getPageContent();
-    const pageId        = getActivePageId();
+    const pageContent = await getPageContent();
+    const pageId = getActivePageId();
     const snapshotBefore = getSnapshot();
 
     // 3 · push page to ChromaDB
@@ -310,12 +384,21 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     let toolCommands: AiToolCommand[] = [];
     try {
       if (mode === "agent") {
-        const r = await callAgent(pageId, userMessage);
-        response = r.response; toolCommands = r.tool_commands;
+        const r = await callAgent(pageId, userMessage, pageContent);
+        response = r.response;
+        toolCommands = r.tool_commands;
       } else {
         activeAbort = new AbortController();
-        const r = await callChat(pageId, userMessage, messages, pageContent, false, activeAbort.signal);
-        response = r.response; toolCommands = r.tool_commands;
+        const r = await callChat(
+          pageId,
+          userMessage,
+          messages,
+          pageContent,
+          false,
+          activeAbort.signal,
+        );
+        response = r.response;
+        toolCommands = r.tool_commands;
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -329,10 +412,15 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
         `**Error:** ${msg}\n\n` +
         `Start your engine:\n\`\`\`\ncd AI-engine\npython -m uvicorn main:app --port 8000\n\`\`\``;
       set((s) => ({
-        messages: [...s.messages, {
-          id: crypto.randomUUID(), role: "assistant",
-          content, timestamp: Date.now(),
-        }],
+        messages: [
+          ...s.messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content,
+            timestamp: Date.now(),
+          },
+        ],
         status: "error",
         errorMessage: msg,
         responseStartedAt: null,
@@ -353,18 +441,32 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     }
 
     const assistantMsg: ChatMessage = {
-      id: crypto.randomUUID(), role: "assistant",
-      content: response || "(no response)", timestamp: Date.now(),
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "",
+      timestamp: Date.now(),
       toolCommands: toolCommands.length > 0 ? toolCommands : undefined,
     };
-    set((s) => ({ messages: [...s.messages, assistantMsg], status: "idle", responseStartedAt: null }));
+    set((s) => ({
+      messages: [...s.messages, assistantMsg],
+      status: "idle",
+      responseStartedAt: null,
+    }));
+    const fallbackText =
+      toolCommands.length > 0
+        ? "Applied changes to the page."
+        : "(no response)";
+    streamMessageContent(assistantMsg.id, response || fallbackText, (updater) =>
+      set(updater),
+    );
     activeRequestId = null;
 
     // 6 · apply changes + build pending list
     if (mode === "agent" && toolCommands.length > 0) {
       const pending: PendingChange[] = toolCommands.map((cmd) => ({
         id: crypto.randomUUID(),
-        description: (cmd.params?.description as string) ?? cmd.description ?? cmd.action,
+        description:
+          (cmd.params?.description as string) ?? cmd.description ?? cmd.action,
         toolCommand: cmd,
         snapshotBefore,
         applied: true,
@@ -377,15 +479,21 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
   },
 
   acceptChange: (changeId) =>
-    set((s) => ({ pendingChanges: s.pendingChanges.filter((c) => c.id !== changeId) })),
+    set((s) => ({
+      pendingChanges: s.pendingChanges.filter((c) => c.id !== changeId),
+    })),
 
   undoChange: (changeId) => {
     const change = get().pendingChanges.find((c) => c.id === changeId);
     if (change) {
       window.dispatchEvent(
-        new CustomEvent("aiUndoChange", { detail: { snapshot: change.snapshotBefore } })
+        new CustomEvent("aiUndoChange", {
+          detail: { snapshot: change.snapshotBefore },
+        }),
       );
     }
-    set((s) => ({ pendingChanges: s.pendingChanges.filter((c) => c.id !== changeId) }));
+    set((s) => ({
+      pendingChanges: s.pendingChanges.filter((c) => c.id !== changeId),
+    }));
   },
 }));

@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
+use rusqlite::Connection;
 use database::diagrams::{self, DiagramFolder, DiagramLibrary, DiagramRecord, SaveDiagramInput};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,6 +56,45 @@ fn reset_local_db(app: tauri::AppHandle) -> Result<(), String> {
     }
     if shm_path.exists() {
         fs::remove_file(&shm_path).map_err(|e| format!("Failed to remove shm: {e}"))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn repair_sql_migrations(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {e}"))?;
+
+    let db_name = sqlite_file_name();
+    let db_path = app_data_dir.join(db_name);
+    if !db_path.exists() {
+        return Ok(());
+    }
+
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open db: {e}"))?;
+
+    let tables = ["__tauri_migrations", "_sqlx_migrations"]; 
+    for table in tables {
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !exists {
+            continue;
+        }
+
+        let _ = conn.execute(
+            &format!("DELETE FROM {table} WHERE version = 1"),
+            [],
+        );
     }
 
     Ok(())
@@ -401,6 +441,7 @@ pub fn run() {
             get_launch_markdown_files,
             read_markdown_file,
             reset_local_db,
+            repair_sql_migrations,
             upload_file,
             upload_asset_bytes,
             get_asset_url,
@@ -415,6 +456,7 @@ pub fn run() {
             ai::sync_page_context,
             ai::ask_ai,
             ai::agent_task,
+            ai::ai_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

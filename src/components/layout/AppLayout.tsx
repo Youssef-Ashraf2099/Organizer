@@ -553,10 +553,12 @@ const AiAgentToggleButton = () => {
         "relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200",
         isOpen
           ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-lg shadow-violet-600/30"
-          : "bg-zinc-100/80 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 hover:bg-violet-500/10 hover:text-violet-600 dark:hover:text-violet-400 border border-zinc-200/80 dark:border-zinc-700"
+          : "bg-zinc-100/80 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 hover:bg-violet-500/10 hover:text-violet-600 dark:hover:text-violet-400 border border-zinc-200/80 dark:border-zinc-700",
       )}
     >
-      <span className={cn("text-base leading-none", isOpen && "animate-pulse")}>✨</span>
+      <span className={cn("text-base leading-none", isOpen && "animate-pulse")}>
+        ✨
+      </span>
       <span className="hidden sm:inline whitespace-nowrap">AI Agent</span>
       {pendingChanges.length > 0 && (
         <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold flex items-center justify-center shadow">

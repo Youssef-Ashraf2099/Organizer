@@ -11,7 +11,7 @@ TOOLS = [
             "properties": {
                 "type": {
                     "type": "string",
-                    "description": "Block type: paragraph, heading, bulletListItem, numberedListItem, math, mermaid, chart, kanban"
+                    "description": "Block type: paragraph, heading, bulletListItem, numberedListItem, math, mermaid, chart, kanban. For markdown, use replace_all instead."
                 },
                 "content": {
                     "type": "string",
@@ -96,12 +96,12 @@ def get_tools_prompt() -> str:
         lines.append(f"- **{tool['name']}**: {tool['description']}")
         lines.append(f"  Params: {{ {param_summary} }}\n")
 
-    lines.append("\nTo use a tool, wrap the JSON in triple backticks with label `tool_command`:")
+    lines.append("\nTo use a tool, output ONLY the tool_command blocks (no extra labels or headings):")
     lines.append("```tool_command")
     lines.append('{"action": "<tool_name>", "description": "short description", "params": {<tool_parameters>}}')
     lines.append("```")
     lines.append("\nYou may emit multiple tool_command blocks in one response.")
-    lines.append("Always explain what you did AFTER the tool command blocks.\n")
+    lines.append("After the tool blocks, write a plain-text summary of the changes.\n")
     return "\n".join(lines)
 
 

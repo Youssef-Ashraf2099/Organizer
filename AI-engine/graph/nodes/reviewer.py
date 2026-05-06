@@ -1,9 +1,13 @@
+import logging
+
 from graph.state import AgentState
 from llm.engine import engine
 from llm.prompts import REVIEWER_PROMPT
 
+logger = logging.getLogger(__name__)
+
 async def reviewer_node(state: AgentState):
-    print("Reviewer node running...")
+    logger.info("Reviewer node running...")
     
     context = state.get("context", "")
     draft = state.get("draft", "")

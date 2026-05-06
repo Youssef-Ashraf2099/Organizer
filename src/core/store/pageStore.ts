@@ -41,7 +41,10 @@ const isTauriRuntime = () =>
   typeof window !== "undefined" &&
   typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
 
-const tauriInvoke = async <T,>(cmd: string, args: Record<string, unknown>): Promise<T> => {
+const tauriInvoke = async <T>(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<T> => {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 };
@@ -143,12 +146,12 @@ const safeGetDb = async () => {
           db = null;
         }
         await closeSharedDb();
-        await tauriInvoke("reset_local_db", {});
+        await tauriInvoke("repair_sql_migrations", {});
         db = await getSharedDb();
         await ensureCoverColumn(db);
         return db;
-      } catch (resetError) {
-        console.error("CRITICAL DB ERROR (reset failed):", resetError);
+      } catch (repairError) {
+        console.error("CRITICAL DB ERROR (repair failed):", repairError);
         return null;
       }
     }

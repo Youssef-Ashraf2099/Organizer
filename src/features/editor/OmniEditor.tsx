@@ -581,11 +581,11 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
             typeof block.content === "string"
               ? block.content
               : Array.isArray(block.content)
-              ? block.content.map((s: any) => s.text ?? "").join("")
-              : "";
+                ? block.content.map((s: any) => s.text ?? "").join("")
+                : "";
           switch (block.type) {
             case "heading":
-              return `${'#'.repeat(block.props?.level ?? 1)} ${text}`;
+              return `${"#".repeat(block.props?.level ?? 1)} ${text}`;
             case "bulletListItem":
               return `- ${text}`;
             case "numberedListItem":
@@ -613,40 +613,81 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
       if (action === "insert_block") {
         const blocks = editor.document;
         const anchor = blocks[blocks.length - 1];
+        const content = (params.content ?? params.text ?? "") as string;
+        const rawType = (params.type ?? "paragraph") as string;
+        if (rawType === "markdown") {
+          const parsed = markdownToBlocks(content);
+          const next =
+            parsed.length > 0 ? parsed : [{ type: "paragraph", content }];
+          if (anchor) {
+            editor.insertBlocks(next as any[], anchor, "after");
+          }
+          setAiPendingChanges(true);
+          return;
+        }
+
+        const allowedTypes = [
+          "paragraph",
+          "heading",
+          "bulletListItem",
+          "numberedListItem",
+          "math",
+          "mermaid",
+          "chart",
+          "kanban",
+          "image",
+          "video",
+          "audio",
+          "pdf",
+        ];
+        const safeType = allowedTypes.includes(rawType) ? rawType : "paragraph";
         const newBlock: any = {
-          type: params.type || "paragraph",
-          content: params.content || "",
+          type: safeType,
+          content,
         };
         if (params.level) newBlock.props = { level: params.level };
         if (anchor) {
           editor.insertBlocks([newBlock], anchor, "after");
         }
         setAiPendingChanges(true);
-      } else if (action === "replace_all" && params.markdown) {
-        const parsed = markdownToBlocks(params.markdown as string);
+      } else if (action === "replace_all") {
+        const markdown = (params.markdown ??
+          params.content ??
+          params.text ??
+          "") as string;
+        if (!markdown) return;
+        const parsed = markdownToBlocks(markdown);
         const next =
           parsed.length > 0
             ? parsed
-            : [{ type: "paragraph", content: params.markdown }];
+            : [{ type: "paragraph", content: markdown }];
         const existing = editor.document.map((b: any) => b.id);
         if (existing.length > 0) editor.removeBlocks(existing);
         const first = editor.document[0];
         if (first) {
           editor.updateBlock(first, next[0] as any);
-          if (next.length > 1) editor.insertBlocks(next.slice(1), first, "after");
+          if (next.length > 1)
+            editor.insertBlocks(next.slice(1), first, "after");
         } else {
           editor.insertBlocks(next, editor.document[0] ?? null, "after");
         }
         debouncedSave(editor.document, activePageId);
         setAiPendingChanges(true);
-      } else if (action === "replace_text" && params.find && params.replace !== undefined) {
+      } else if (
+        action === "replace_text" &&
+        params.find &&
+        params.replace !== undefined
+      ) {
         const blocks = editor.document;
         blocks.forEach((block: any) => {
           if (Array.isArray(block.content)) {
             const full = block.content.map((s: any) => s.text ?? "").join("");
             if (full.includes(params.find as string)) {
               editor.updateBlock(block, {
-                content: full.replace(params.find as string, params.replace as string),
+                content: full.replace(
+                  params.find as string,
+                  params.replace as string,
+                ),
               } as any);
             }
           }
@@ -657,7 +698,9 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
 
     // DOM-based listener (used by AiAgentPanel)
     const handleDomCommand = (e: Event) => {
-      const detail = (e as CustomEvent<{ action: string; params: Record<string, any> }>).detail;
+      const detail = (
+        e as CustomEvent<{ action: string; params: Record<string, any> }>
+      ).detail;
       if (!detail) return;
       try {
         applyCommand(detail.action, detail.params);
