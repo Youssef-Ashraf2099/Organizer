@@ -23,6 +23,7 @@ import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
 import { AudioBlock } from "./AudioBlock";
 import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
+import { serializeBlocksForAI } from "./blockSerializer";
 import { AnimatePresence, motion } from "framer-motion";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
@@ -571,35 +572,13 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
   }, [editor]);
 
   // Respond to getPageContent event (for AI panel context)
+  // Uses the block serializer to give the AI precise, type-aware context
+  // instead of a lossy markdown dump.
   useEffect(() => {
     if (!editor) return;
     const handleGetContent = () => {
-      const blocks = editor.document;
-      const md = blocks
-        .map((block: any) => {
-          const text =
-            typeof block.content === "string"
-              ? block.content
-              : Array.isArray(block.content)
-                ? block.content.map((s: any) => s.text ?? "").join("")
-                : "";
-          switch (block.type) {
-            case "heading":
-              return `${"#".repeat(block.props?.level ?? 1)} ${text}`;
-            case "bulletListItem":
-              return `- ${text}`;
-            case "numberedListItem":
-              return `1. ${text}`;
-            case "mermaid":
-              return `[mermaid]: ${block.props?.code ?? ""}`;
-            case "math":
-              return `[math]: ${block.props?.latex ?? ""}`;
-            default:
-              return text;
-          }
-        })
-        .join("\n");
-      (window as any).__currentPageContent = md;
+      const { text } = serializeBlocksForAI(editor.document as any[]);
+      (window as any).__currentPageContent = text;
     };
     window.addEventListener("getPageContent", handleGetContent);
     return () => window.removeEventListener("getPageContent", handleGetContent);
@@ -610,6 +589,42 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
     if (!editor || !activePageId) return;
 
     const applyCommand = (action: string, params: Record<string, any>) => {
+      // ── Block-native handlers (new protocol) ──────────────────────────────
+      if (action === "insert_blocks") {
+        // params.blocks is a BlockNote-ready array from the AI
+        const rawBlocks: any[] = Array.isArray(params.blocks) ? params.blocks : [];
+        if (rawBlocks.length === 0) return;
+        const anchor = editor.document[editor.document.length - 1];
+        if (anchor) {
+          editor.insertBlocks(rawBlocks, anchor, "after");
+        } else {
+          editor.insertBlocks(rawBlocks, editor.document[0] ?? null, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(true);
+        return;
+      }
+
+      if (action === "replace_page") {
+        // params.blocks is the full new page as a BlockNote array
+        const rawBlocks: any[] = Array.isArray(params.blocks) ? params.blocks : [];
+        if (rawBlocks.length === 0) return;
+        const existing = editor.document.map((b: any) => b.id);
+        if (existing.length > 0) editor.removeBlocks(existing);
+        const first = editor.document[0];
+        if (first) {
+          editor.updateBlock(first, rawBlocks[0] as any);
+          if (rawBlocks.length > 1)
+            editor.insertBlocks(rawBlocks.slice(1), first, "after");
+        } else {
+          editor.insertBlocks(rawBlocks, editor.document[0] ?? null, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(true);
+        return;
+      }
+
+      // ── Legacy markdown-based handlers (backward compat) ──────────────────
       if (action === "insert_block") {
         const blocks = editor.document;
         const anchor = blocks[blocks.length - 1];

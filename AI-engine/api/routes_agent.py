@@ -8,6 +8,8 @@ import json
 import re
 from typing import Optional, Dict
 
+from tools.tool_registry import ALLOWED_ACTIONS
+
 router = APIRouter()
 
 class AgentRequest(BaseModel):
@@ -15,30 +17,32 @@ class AgentRequest(BaseModel):
     task: str
     page_content: str = ""
 
-ALLOWED_ACTIONS = {
-    "insert_block",
-    "replace_all",
-    "replace_text",
-    "delete_block",
-}
+# ─── Context Budget ───────────────────────────────────────────────────────────
+
+def trim_page_content(content: str, max_chars: int = 800) -> str:
+    """Trim page content to prevent LLM context overflow."""
+    if not content or len(content) <= max_chars:
+        return content
+    trimmed = content[:max_chars]
+    last_space = trimmed.rfind(" ")
+    if last_space > max_chars // 2:
+        trimmed = trimmed[:last_space]
+    return trimmed + "\n[...trimmed...]"
+
+# ─── Tool Command Extraction ──────────────────────────────────────────────────
 
 def normalize_tool_command(cmd: dict) -> Optional[Dict]:
     action = cmd.get("action")
-    if not isinstance(action, str):
+    if not isinstance(action, str) or action not in ALLOWED_ACTIONS:
         return None
-    if action not in ALLOWED_ACTIONS:
-        return None
-    if "<" in action or ">" in action:
-        return None
-    params = cmd.get("params")
-    if params is None:
+    if cmd.get("params") is None:
         cmd["params"] = {}
-    elif not isinstance(params, dict):
+    elif not isinstance(cmd.get("params"), dict):
         return None
     return cmd
 
-def find_json_tool_commands(text: str) -> list[dict]:
-    commands: list[dict] = []
+def find_json_objects(text: str) -> list[dict]:
+    commands = []
     stack = 0
     start = None
     for idx, ch in enumerate(text):
@@ -49,7 +53,7 @@ def find_json_tool_commands(text: str) -> list[dict]:
         elif ch == "}" and stack > 0:
             stack -= 1
             if stack == 0 and start is not None:
-                snippet = text[start : idx + 1]
+                snippet = text[start:idx + 1]
                 start = None
                 try:
                     parsed = json.loads(snippet)
@@ -62,7 +66,13 @@ def find_json_tool_commands(text: str) -> list[dict]:
     return commands
 
 def extract_tool_commands(text: str) -> list[dict]:
+    """
+    Extract block-native tool commands from LLM output.
+    No markdown fallback — prevents raw content leakage.
+    """
     commands: list[dict] = []
+
+    # 1. Explicit tool_command blocks
     pattern = re.compile(r"```tool_command\s*([\s\S]*?)```", re.IGNORECASE)
     for m in pattern.finditer(text):
         try:
@@ -74,115 +84,99 @@ def extract_tool_commands(text: str) -> list[dict]:
             if normalized:
                 commands.append(normalized)
 
-    code_pattern = re.compile(r"```[a-zA-Z0-9_-]*\s*([\s\S]*?)```")
-    for m in code_pattern.finditer(text):
-        block = m.group(1).strip()
-        if not block.startswith("{"):
-            continue
-        try:
-            cmd = json.loads(block)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(cmd, dict):
-            normalized = normalize_tool_command(cmd)
-            if normalized:
-                commands.append(normalized)
-
+    # 2. Generic code blocks
     if not commands:
-        commands.extend(find_json_tool_commands(text))
+        code_pattern = re.compile(r"```[a-zA-Z0-9_-]*\s*([\s\S]*?)```")
+        for m in code_pattern.finditer(text):
+            block = m.group(1).strip()
+            if not block.startswith("{"):
+                continue
+            try:
+                cmd = json.loads(block)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(cmd, dict):
+                normalized = normalize_tool_command(cmd)
+                if normalized:
+                    commands.append(normalized)
 
+    # 3. Inline JSON scan fallback
+    if not commands:
+        commands.extend(find_json_objects(text))
+
+    # Deduplicate
     unique: list[dict] = []
-    seen = set()
+    seen: set[str] = set()
     for cmd in commands:
         key = json.dumps(cmd, sort_keys=True)
         if key not in seen:
             seen.add(key)
             unique.append(cmd)
+
     return unique
 
 def strip_tool_blocks(text: str) -> str:
-    return re.sub(r"```tool_command[\s\S]*?```", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"```tool_command[\s\S]*?```", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"```json[\s\S]*?```", "", text, flags=re.IGNORECASE)
+    return text.strip()
 
-def strip_json_blocks(text: str) -> str:
-    return re.sub(r"```json[\s\S]*?```", "", text, flags=re.IGNORECASE).strip()
-
-def strip_tool_prompt_echo(text: str) -> str:
+def strip_system_echo(text: str) -> str:
+    bad = [
+        r"={3,}\s*CURRENT PAGE\s*={3,}",
+        r"={3,}\s*END PAGE\s*={3,}",
+        r"supported block types:",
+        r"you have access to the following editor tools",
+    ]
     lines = []
     for line in text.splitlines():
-        lower = line.strip().lower()
-        if not lower:
-            lines.append(line)
-            continue
-        if "tool_command" in lower or "tool commands" in lower:
-            continue
-        if lower.startswith("- **insert_block**"):
-            continue
-        if lower.startswith("- **replace_all**"):
-            continue
-        if lower.startswith("- **replace_text**"):
-            continue
-        if lower.startswith("- **delete_block**"):
-            continue
-        if "you have access to the following editor tools" in lower:
-            continue
-        if lower.startswith("params:") and "{" in lower and "}" in lower:
+        if any(re.search(p, line, re.IGNORECASE) for p in bad):
             continue
         lines.append(line)
     return "\n".join(lines).strip()
 
-def extract_content_from_json(text: str) -> Optional[str]:
-    try:
-        data = json.loads(text.strip())
-        if isinstance(data, dict) and isinstance(data.get("content"), str):
-            return data["content"].strip()
-    except json.JSONDecodeError:
-        return None
-    return None
+# ─── Agent Endpoint ───────────────────────────────────────────────────────────
 
 @router.post("/")
 async def agent_task(req: AgentRequest):
-    """
-    Handles Autonomous Tasks (Agent Mode) using LangGraph.
-    """
-    # Create an initial state
+    """Autonomous agent mode using LangGraph (Researcher → Writer → Reviewer)."""
+    trimmed_content = trim_page_content(req.page_content or "")
+
     initial_state = AgentState(
         messages=[],
         page_id=req.page_id,
         task=req.task,
-        page_content=req.page_content or "",
+        page_content=trimmed_content,
         context="",
         draft="",
         persona="General Assistant",
-        feedback=""
+        feedback="",
+        revision_count=0,
     )
-    
-    # Run the graph
-    # LangGraph compile().ainvoke handles async execution
+
     final_state = await app_graph.ainvoke(initial_state)
-    
-    # Save the final state to sqlite
+
     state_id = str(uuid.uuid4())
     state_store.save_agent_state(state_id, req.page_id, final_state)
-    
+
     draft = final_state.get("draft") or ""
     tool_commands = extract_tool_commands(draft)
+
     response_text = strip_tool_blocks(draft)
-    response_text = strip_json_blocks(response_text)
-    response_text = strip_tool_prompt_echo(response_text)
+    response_text = strip_system_echo(response_text)
+
     if not response_text.strip():
-        extracted = extract_content_from_json(draft)
-        if extracted:
-            response_text = extracted
-        elif final_state.get("feedback"):
+        if final_state.get("feedback") and "APPROVE" not in str(final_state.get("feedback")).upper():
             response_text = str(final_state.get("feedback"))
         elif tool_commands:
             response_text = "Applied changes to the page."
+        else:
+            response_text = "(No response generated.)"
 
     return {
-        "status": "completed", 
+        "status": "completed",
         "task": req.task,
         "response": response_text,
         "tool_commands": tool_commands,
         "feedback": final_state.get("feedback"),
-        "state_id": state_id
+        "state_id": state_id,
     }

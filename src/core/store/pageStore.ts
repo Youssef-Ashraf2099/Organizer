@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import Database from "@tauri-apps/plugin-sql";
-import { DB_URL, closeSharedDb, getSharedDb } from "../db/sqlite";
+import {closeSharedDb, getSharedDb } from "../db/sqlite";
 
 // Types
 export interface PageMetadata {

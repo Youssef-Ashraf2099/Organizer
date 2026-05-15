@@ -18,10 +18,7 @@ async def researcher_node(state: AgentState):
     try:
         results = await vector_store.query_context(page_id, query_texts=[task], n_results=3)
         
-        # Format results into a context string
         context = ""
-        if page_content:
-            context += f"Page content:\n{page_content}\n\n"
         if results and results.get("documents") and len(results["documents"]) > 0:
             for idx, doc_list in enumerate(results["documents"]):
                 for doc in doc_list:

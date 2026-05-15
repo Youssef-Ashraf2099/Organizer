@@ -13,3 +13,4 @@ class AgentState(TypedDict):
     draft: str
     persona: str
     feedback: str
+    revision_count: int

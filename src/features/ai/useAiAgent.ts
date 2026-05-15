@@ -1,4 +1,5 @@
 import { create } from "zustand";
+//import { serializeBlocksForAI } from "../editor/blockSerializer";
 
 // ─── Runtime detection ────────────────────────────────────────────────────────
 const isTauri = () =>
@@ -17,8 +18,16 @@ export interface ChatMessage {
   toolCommands?: AiToolCommand[];
 }
 
+/** Block-native tool commands (new protocol) */
 export interface AiToolCommand {
-  action: "insert_block" | "replace_all" | "replace_text" | "delete_block";
+  action:
+    | "insert_blocks"   // Add blocks at end of page (block-native)
+    | "replace_page"    // Replace whole page (block-native)
+    | "delete_block"    // Delete block by text match
+    // Legacy fallbacks (still handled in OmniEditor for backward compat)
+    | "insert_block"
+    | "replace_all"
+    | "replace_text";
   params: Record<string, unknown>;
   description?: string;
 }
@@ -78,6 +87,8 @@ type HealthResponse = {
   n_threads?: number;
   n_gpu_layers?: number;
   n_batch?: number;
+  gpu_backend?: string;
+  chat_template?: string;
 };
 
 let activeAbort: AbortController | null = null;
@@ -94,7 +105,12 @@ async function tauriInvoke<T>(
   return invoke<T>(cmd, args);
 }
 
-// ─── Get editor page content via DOM event ────────────────────────────────────
+// ─── Get page content for AI context ─────────────────────────────────────────
+/**
+ * Requests the editor to serialize its current document via the block
+ * serializer (compact block-type-aware format), then waits for the result.
+ * Falls back to the old markdown string if the editor hasn't upgraded yet.
+ */
 async function getPageContent(): Promise<string> {
   return new Promise((resolve) => {
     (window as any).__currentPageContent = undefined;
@@ -110,12 +126,12 @@ async function getPageContent(): Promise<string> {
   });
 }
 
-// ─── Get editor snapshot for undo ────────────────────────────────────────────
+// ─── Snapshot for undo ────────────────────────────────────────────────────────
 function getSnapshot(): unknown[] {
   return (window as any).__editorSnapshot ?? [];
 }
 
-// ─── Dispatch tool command to the editor (DOM event) ─────────────────────────
+// ─── Dispatch tool command to the editor ─────────────────────────────────────
 function dispatchTool(cmd: AiToolCommand) {
   window.dispatchEvent(
     new CustomEvent("aiToolCommand", {
@@ -124,7 +140,7 @@ function dispatchTool(cmd: AiToolCommand) {
   );
 }
 
-// ─── Sync page content to ChromaDB (best-effort, non-blocking) ───────────────
+// ─── Sync page content to ChromaDB ───────────────────────────────────────────
 async function syncContext(pageId: string, content: string): Promise<void> {
   if (!pageId || !content) return;
   try {
@@ -134,7 +150,7 @@ async function syncContext(pageId: string, content: string): Promise<void> {
       await fetch(`${ENGINE_URL}/sync/context`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page_id: pageId, content, type: "markdown" }),
+        body: JSON.stringify({ page_id: pageId, content, type: "blocks" }),
       });
     }
   } catch {
@@ -142,7 +158,7 @@ async function syncContext(pageId: string, content: string): Promise<void> {
   }
 }
 
-// ─── Call /chat/ (multi-turn chat via your engine) ───────────────────────────
+// ─── Chat call ────────────────────────────────────────────────────────────────
 async function callChat(
   pageId: string,
   message: string,
@@ -152,7 +168,6 @@ async function callChat(
   signal?: AbortSignal,
 ): Promise<{ response: string; tool_commands: AiToolCommand[] }> {
   if (isTauri()) {
-    // Rust ask_ai → POST /chat/ → returns raw JSON string from the engine
     const raw = await tauriInvoke<string>("ask_ai", {
       pageId,
       prompt: message,
@@ -171,7 +186,6 @@ async function callChat(
     }
   }
 
-  // Browser / dev mode — call FastAPI directly
   const res = await fetch(`${ENGINE_URL}/chat/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -188,25 +202,12 @@ async function callChat(
   return res.json();
 }
 
-// ─── Call /agent/ (LangGraph autonomous mode) ─────────────────────────────────
+// ─── Agent call ───────────────────────────────────────────────────────────────
 async function callAgent(
   pageId: string,
   task: string,
   pageContent: string,
 ): Promise<{ response: string; tool_commands: AiToolCommand[] }> {
-  const extractFromDraft = (draft: string, feedback: string) => {
-    if (draft.trim().startsWith("{")) {
-      try {
-        const cmd = JSON.parse(draft);
-        if (cmd.action)
-          return { response: feedback || "Done.", tool_commands: [cmd] };
-      } catch {
-        /* not JSON */
-      }
-    }
-    return { response: draft, tool_commands: [] as AiToolCommand[] };
-  };
-
   if (isTauri()) {
     const raw = await tauriInvoke<string>("agent_task", {
       pageId,
@@ -215,13 +216,10 @@ async function callAgent(
     });
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.tool_commands)) {
-        return {
-          response: parsed.response ?? parsed.feedback ?? "Done.",
-          tool_commands: parsed.tool_commands,
-        };
-      }
-      return extractFromDraft(parsed.draft ?? "", parsed.feedback ?? "");
+      return {
+        response: parsed.response ?? parsed.feedback ?? "Done.",
+        tool_commands: parsed.tool_commands ?? [],
+      };
     } catch {
       return { response: raw, tool_commands: [] };
     }
@@ -234,15 +232,13 @@ async function callAgent(
   });
   if (!res.ok) throw new Error(`Agent ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  if (Array.isArray(data.tool_commands)) {
-    return {
-      response: data.response ?? data.feedback ?? "Done.",
-      tool_commands: data.tool_commands,
-    };
-  }
-  return extractFromDraft(data.draft ?? "", data.feedback ?? "");
+  return {
+    response: data.response ?? data.feedback ?? "Done.",
+    tool_commands: data.tool_commands ?? [],
+  };
 }
 
+// ─── Streaming text animation ─────────────────────────────────────────────────
 function streamMessageContent(
   messageId: string,
   content: string,
@@ -254,10 +250,11 @@ function streamMessageContent(
   }
 
   let index = 0;
-  const durationMs = Math.min(12000, Math.max(1400, content.length * 30));
-  const intervalMs = 45;
+  const durationMs = Math.min(8000, Math.max(1200, content.length * 25));
+  const intervalMs = 40;
   const steps = Math.max(1, Math.ceil(durationMs / intervalMs));
   const step = Math.max(1, Math.ceil(content.length / steps));
+
   activeStreamTimer = window.setInterval(() => {
     index = Math.min(content.length, index + step);
     update((state) => ({
@@ -276,7 +273,7 @@ function streamMessageContent(
   }, intervalMs);
 }
 
-// ─── Active page ID (read from persisted pageStore) ───────────────────────────
+// ─── Active page ID ───────────────────────────────────────────────────────────
 function getActivePageId(): string {
   try {
     const raw = localStorage.getItem("page-store");
@@ -303,9 +300,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
       activeAbort.abort();
       activeAbort = null;
     }
-    if (activeRequestId) {
-      canceledRequestId = activeRequestId;
-    }
+    if (activeRequestId) canceledRequestId = activeRequestId;
 
     set((s) => ({
       status: "idle",
@@ -333,6 +328,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   dismissError: () => set({ errorMessage: null, status: "idle" }),
   clearMessages: () => set({ messages: [], pendingChanges: [] }),
+
   refreshHealth: async () => {
     set({ modelState: "loading" });
     try {
@@ -345,7 +341,6 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
         });
         return;
       }
-
       const res = await fetch(`${ENGINE_URL}/health`);
       if (!res.ok) throw new Error("health check failed");
       const data: HealthResponse = await res.json();
@@ -378,12 +373,12 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
       responseStartedAt: Date.now(),
     }));
 
-    // 2 · gather context + snapshot
+    // 2 · gather context using block serializer
     const pageContent = await getPageContent();
     const pageId = getActivePageId();
     const snapshotBefore = getSnapshot();
 
-    // 3 · push page to ChromaDB
+    // 3 · push to ChromaDB (best-effort)
     await syncContext(pageId, pageContent);
     set({ status: "thinking" });
 
@@ -437,17 +432,15 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     }
 
     activeAbort = null;
-
     if (canceledRequestId === requestId) {
       activeRequestId = null;
       return;
     }
 
-    // 5 · append assistant bubble
-    if (mode === "chat" && !allowTools) {
-      toolCommands = [];
-    }
+    // 5 · strip tools from chat mode if not applicable
+    if (mode === "chat" && !allowTools) toolCommands = [];
 
+    // 6 · append assistant bubble
     const assistantMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
@@ -460,16 +453,15 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
       status: "idle",
       responseStartedAt: null,
     }));
+
     const fallbackText =
-      toolCommands.length > 0
-        ? "Applied changes to the page."
-        : "(no response)";
+      toolCommands.length > 0 ? "Applied changes to the page." : "(no response)";
     streamMessageContent(assistantMsg.id, response || fallbackText, (updater) =>
       set(updater),
     );
     activeRequestId = null;
 
-    // 6 · apply changes + build pending list
+    // 7 · dispatch tool commands to editor + build pending list
     if (toolCommands.length > 0) {
       const pending: PendingChange[] = toolCommands.map((cmd) => ({
         id: crypto.randomUUID(),

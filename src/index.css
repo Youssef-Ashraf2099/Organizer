@@ -205,6 +205,56 @@
     margin: 0 !important;
   }
 
+  /* Ensure list items are flex rows and never wrap text to the next line */
+  .bn-block-content[data-content-type="checkListItem"],
+  .bn-block-content[data-content-type="bulletListItem"],
+  .bn-block-content[data-content-type="numberedListItem"] {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+  }
+
+  /* Make sure the text container takes up remaining space and doesn't force a wrap */
+  .bn-block-content[data-content-type="checkListItem"] .bn-inline-content,
+  .bn-block-content[data-content-type="bulletListItem"] .bn-inline-content,
+  .bn-block-content[data-content-type="numberedListItem"] .bn-inline-content {
+    flex: 1 1 0% !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Fix Checkbox Marker Alignment */
+  .bn-block-content[data-content-type="checkListItem"] input[type="checkbox"] {
+    margin-top: 0.45em !important;
+    margin-right: 0.6em !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Fix Bullet and Number Marker Alignment */
+  .bn-block-content[data-content-type="bulletListItem"]:before {
+    font-size: 1.25rem !important;
+    line-height: 1.75 !important;
+    min-width: 1.8rem !important;
+    padding-right: 0.2rem !important;
+    margin-top: -0.05em !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+  
+  .bn-block-content[data-content-type="numberedListItem"]:before {
+    font-size: 1.02rem !important;
+    line-height: 1.75 !important;
+    min-width: 1.8rem !important;
+    padding-right: 0.4rem !important;
+    margin-top: 0.05em !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+
   .bn-editor blockquote {
     border-left: 3px solid rgba(148, 163, 184, 0.45);
     padding-left: 1rem;
