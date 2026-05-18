@@ -339,7 +339,7 @@ export const AppLayout = () => {
         className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative"
       >
         {/* Tab Buttons at Top */}
-        <div className="app-topbar flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
+        <div className="app-topbar flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print relative z-50">
           <div className="flex flex-1 gap-1 px-2 py-2 overflow-x-auto">
             <button
               onClick={() => setRightPanelView("editor")}
