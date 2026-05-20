@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Omni AI Engine — Python Dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+
+fastapi==0.111.0
+uvicorn==0.29.0
+pydantic==2.7.1
+langgraph==0.0.60
+langchain-core==0.2.1
+chromadb==0.5.0
+python-dotenv==1.0.1
+httpx>=0.27.0
+psutil>=5.9.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# llama-cpp-python — GPU Builds
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# CPU-only (default, already installed):
+#   pip install llama-cpp-python==0.2.76
+#
+# NVIDIA CUDA 12.4 (RECOMMENDED — full GPU offload, fastest inference):
+#   pip install llama-cpp-python --upgrade --force-reinstall \
+#     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+#
+# NVIDIA CUDA 12.1:
+#   pip install llama-cpp-python --upgrade --force-reinstall \
+#     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
+#
+# AMD ROCm (future support — not yet active):
+#   pip install llama-cpp-python --upgrade --force-reinstall \
+#     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/rocm
+#
+# After installing the CUDA build, set AI_N_GPU_LAYERS=-1 in your .env
+# to offload ALL model layers to the GPU for maximum speed.
+# ─────────────────────────────────────────────────────────────────────────────
+llama-cpp-python==0.2.76

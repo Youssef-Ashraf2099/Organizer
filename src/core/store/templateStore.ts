@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import Database from "@tauri-apps/plugin-sql";
-import { DB_URL } from "../db/sqlite";
+import type Database from "@tauri-apps/plugin-sql";
+import { getSharedDb } from "../db/sqlite";
 import { Template, builtinTemplates } from "../templates/builtinTemplates";
 import { PartialBlock } from "@blocknote/core";
 
@@ -57,9 +57,7 @@ const safeGetDb = async () => {
       return null;
     }
     if (!db) {
-      db = await Database.load(DB_URL);
-      await db.execute("PRAGMA journal_mode = WAL;");
-      await db.execute("PRAGMA foreign_keys = ON;");
+      db = await getSharedDb();
     }
     return db;
   } catch (e) {

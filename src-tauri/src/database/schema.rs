@@ -107,7 +107,8 @@ pub fn get_migrations() -> Vec<Migration> {
             version: 3,
             description: "add_page_cover",
             sql: r#"
-                ALTER TABLE pages ADD COLUMN cover TEXT;
+                -- No-op: cover column is ensured by the app at runtime.
+                SELECT 1;
             "#,
             kind: MigrationKind::Up,
         },

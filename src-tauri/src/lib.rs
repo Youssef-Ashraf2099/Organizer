@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod database;
 
 use serde::{Deserialize, Serialize};
@@ -6,6 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
+use rusqlite::Connection;
 use database::diagrams::{self, DiagramFolder, DiagramLibrary, DiagramRecord, SaveDiagramInput};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,6 +34,70 @@ fn sqlite_file_name() -> &'static str {
     } else {
         "omni_workspace.db"
     }
+}
+
+#[tauri::command]
+fn reset_local_db(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {e}"))?;
+
+    let db_name = sqlite_file_name();
+    let db_path = app_data_dir.join(db_name);
+    let wal_path = app_data_dir.join(format!("{db_name}-wal"));
+    let shm_path = app_data_dir.join(format!("{db_name}-shm"));
+
+    if db_path.exists() {
+        fs::remove_file(&db_path).map_err(|e| format!("Failed to remove db: {e}"))?;
+    }
+    if wal_path.exists() {
+        fs::remove_file(&wal_path).map_err(|e| format!("Failed to remove wal: {e}"))?;
+    }
+    if shm_path.exists() {
+        fs::remove_file(&shm_path).map_err(|e| format!("Failed to remove shm: {e}"))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn repair_sql_migrations(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {e}"))?;
+
+    let db_name = sqlite_file_name();
+    let db_path = app_data_dir.join(db_name);
+    if !db_path.exists() {
+        return Ok(());
+    }
+
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open db: {e}"))?;
+
+    let tables = ["__tauri_migrations", "_sqlx_migrations"]; 
+    for table in tables {
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !exists {
+            continue;
+        }
+
+        let _ = conn.execute(
+            &format!("DELETE FROM {table} WHERE version = 1"),
+            [],
+        );
+    }
+
+    Ok(())
 }
 
 fn maybe_migrate_legacy_db(app: &tauri::AppHandle) {
@@ -352,6 +418,9 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            app.manage(ai::AiSidecarState::default());
+            ai::spawn_sidecar(app.handle());
+
             maybe_migrate_legacy_db(app.handle());
             let startup_markdown_files = collect_startup_markdown_files();
             app.manage(StartupFileState {
@@ -360,10 +429,19 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|_window, event| match event {
+            tauri::WindowEvent::Destroyed => {
+                // When the main window is destroyed, we could potentially kill the sidecar
+                // However, doing it on exit is better, which can be done in main.rs or a plugin
+            }
+            _ => {}
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_launch_markdown_files,
             read_markdown_file,
+            reset_local_db,
+            repair_sql_migrations,
             upload_file,
             upload_asset_bytes,
             get_asset_url,
@@ -375,6 +453,10 @@ pub fn run() {
             diagram_delete_folder,
             diagram_save,
             diagram_delete,
+            ai::sync_page_context,
+            ai::ask_ai,
+            ai::agent_task,
+            ai::ai_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

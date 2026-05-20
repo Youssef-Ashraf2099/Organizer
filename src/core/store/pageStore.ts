@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import Database from "@tauri-apps/plugin-sql";
-import { DB_URL } from "../db/sqlite";
+import {closeSharedDb, getSharedDb } from "../db/sqlite";
 
 // Types
 export interface PageMetadata {
@@ -33,12 +33,21 @@ interface PageStore {
 
 let db: Database | null = null;
 let hasCoverColumn: boolean | null = null;
+let didAttemptDbReset = false;
 
 const WEB_PAGE_STORAGE_KEY = "omni-web-pages";
 
 const isTauriRuntime = () =>
   typeof window !== "undefined" &&
   typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+
+const tauriInvoke = async <T>(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<T> => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+};
 
 const loadWebPages = (): PageMetadata[] => {
   try {
@@ -117,15 +126,36 @@ const safeGetDb = async () => {
       return null;
     }
     if (!db) {
-      db = await Database.load(DB_URL);
-      // Initialize PRAGMAs for every connection
-      await db.execute("PRAGMA journal_mode = WAL;");
-      await db.execute("PRAGMA foreign_keys = ON;");
-      await db.execute("PRAGMA recursive_triggers = ON;");
+      db = await getSharedDb();
       await ensureCoverColumn(db);
     }
     return db;
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (
+      message.includes("previously applied but has been modified") &&
+      !didAttemptDbReset
+    ) {
+      didAttemptDbReset = true;
+      try {
+        if (db) {
+          const handle: any = db as any;
+          if (typeof handle.close === "function") {
+            await handle.close();
+          }
+          db = null;
+        }
+        await closeSharedDb();
+        await tauriInvoke("repair_sql_migrations", {});
+        db = await getSharedDb();
+        await ensureCoverColumn(db);
+        return db;
+      } catch (repairError) {
+        console.error("CRITICAL DB ERROR (repair failed):", repairError);
+        return null;
+      }
+    }
+
     console.error("CRITICAL DB ERROR:", e);
     return null;
   }

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import Database from "@tauri-apps/plugin-sql";
+import { getSharedDb } from "../../core/db/sqlite";
 import { Sidebar } from "../../features/sidebar/Sidebar";
 import { OmniEditor } from "../../features/editor/OmniEditor";
 import { cn } from "../../lib/utils";
@@ -38,7 +38,8 @@ import {
   useObjectiveStore,
 } from "../../core/store/objectiveStore";
 import { markdownToBlocks } from "../../features/editor/markdownParser";
-import { DB_URL } from "../../core/db/sqlite";
+import { AiAgentPanel } from "../../features/ai/AiAgentPanel";
+import { useAiAgent } from "../../features/ai/useAiAgent";
 
 type RightPanelView =
   | "editor"
@@ -209,7 +210,7 @@ export const AppLayout = () => {
         );
         if (!Array.isArray(startupFiles) || startupFiles.length === 0) return;
 
-        const db = await Database.load(DB_URL);
+        const db = await getSharedDb();
 
         for (const filePath of startupFiles) {
           const markdown = await invoke<string>("read_markdown_file", {
@@ -338,7 +339,7 @@ export const AppLayout = () => {
         className="flex-1 h-full min-w-0 flex flex-col overflow-hidden relative"
       >
         {/* Tab Buttons at Top */}
-        <div className="app-topbar flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print">
+        <div className="app-topbar flex items-center border-b border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur no-print relative z-50">
           <div className="flex flex-1 gap-1 px-2 py-2 overflow-x-auto">
             <button
               onClick={() => setRightPanelView("editor")}
@@ -496,6 +497,11 @@ export const AppLayout = () => {
             </div>
           )}
 
+          {/* AI Agent Toggle */}
+          <div className="relative px-1">
+            <AiAgentToggleButton />
+          </div>
+
           {/* Notification Bell */}
           <div className="relative px-3">
             <NotificationBell />
@@ -528,6 +534,37 @@ export const AppLayout = () => {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* AI Agent Panel — slides in from the right */}
+      <AiAgentPanel />
     </div>
+  );
+};
+
+// ─── AI Agent Toggle Button ───────────────────────────────────────────────────
+const AiAgentToggleButton = () => {
+  const { isOpen, togglePanel, pendingChanges } = useAiAgent();
+  return (
+    <button
+      id="ai-agent-toggle"
+      onClick={togglePanel}
+      title={isOpen ? "Close AI Agent" : "Open AI Agent"}
+      className={cn(
+        "relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200",
+        isOpen
+          ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-lg shadow-violet-600/30"
+          : "bg-zinc-100/80 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 hover:bg-violet-500/10 hover:text-violet-600 dark:hover:text-violet-400 border border-zinc-200/80 dark:border-zinc-700",
+      )}
+    >
+      <span className={cn("text-base leading-none", isOpen && "animate-pulse")}>
+        ✨
+      </span>
+      <span className="hidden sm:inline whitespace-nowrap">AI Agent</span>
+      {pendingChanges.length > 0 && (
+        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold flex items-center justify-center shadow">
+          {pendingChanges.length}
+        </span>
+      )}
+    </button>
   );
 };

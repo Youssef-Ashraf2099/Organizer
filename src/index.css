@@ -205,6 +205,56 @@
     margin: 0 !important;
   }
 
+  /* Ensure list items are flex rows and never wrap text to the next line */
+  .bn-block-content[data-content-type="checkListItem"],
+  .bn-block-content[data-content-type="bulletListItem"],
+  .bn-block-content[data-content-type="numberedListItem"] {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+  }
+
+  /* Make sure the text container takes up remaining space and doesn't force a wrap */
+  .bn-block-content[data-content-type="checkListItem"] .bn-inline-content,
+  .bn-block-content[data-content-type="bulletListItem"] .bn-inline-content,
+  .bn-block-content[data-content-type="numberedListItem"] .bn-inline-content {
+    flex: 1 1 0% !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Fix Checkbox Marker Alignment */
+  .bn-block-content[data-content-type="checkListItem"] input[type="checkbox"] {
+    margin-top: 0.45em !important;
+    margin-right: 0.6em !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Fix Bullet and Number Marker Alignment */
+  .bn-block-content[data-content-type="bulletListItem"]:before {
+    font-size: 1.25rem !important;
+    line-height: 1.75 !important;
+    min-width: 1.8rem !important;
+    padding-right: 0.2rem !important;
+    margin-top: -0.05em !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+  
+  .bn-block-content[data-content-type="numberedListItem"]:before {
+    font-size: 1.02rem !important;
+    line-height: 1.75 !important;
+    min-width: 1.8rem !important;
+    padding-right: 0.4rem !important;
+    margin-top: 0.05em !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+
   .bn-editor blockquote {
     border-left: 3px solid rgba(148, 163, 184, 0.45);
     padding-left: 1rem;
@@ -259,6 +309,143 @@
     .no-print {
       display: none !important;
     }
+  }
+}
+
+.startup-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 55%),
+    radial-gradient(
+      circle at bottom,
+      rgba(99, 102, 241, 0.12),
+      transparent 60%
+    ),
+    #050507;
+}
+
+.startup-card {
+  position: relative;
+  width: min(420px, 85vw);
+  padding: 32px 28px 28px;
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  box-shadow: 0 30px 80px rgba(2, 6, 23, 0.55);
+  text-align: center;
+  color: #e2e8f0;
+  overflow: hidden;
+}
+
+.startup-card h2 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.startup-card p {
+  margin: 0 0 18px;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.startup-orbit {
+  position: absolute;
+  inset: -35% -35% auto;
+  height: 180px;
+  border-radius: 999px;
+  border: 1px dashed rgba(59, 130, 246, 0.4);
+  animation: orbitSpin 6s linear infinite;
+  opacity: 0.6;
+}
+
+.startup-core {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.9),
+    rgba(139, 92, 246, 0.85)
+  );
+  box-shadow: 0 0 35px rgba(59, 130, 246, 0.45);
+  animation: corePulse 1.6s ease-in-out infinite;
+}
+
+.startup-progress {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.startup-progress-bar {
+  position: absolute;
+  inset: 0;
+  width: 35%;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.6),
+    rgba(14, 165, 233, 0.9)
+  );
+  border-radius: inherit;
+  animation: progressWave 1.6s ease-in-out infinite;
+}
+
+.ai-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  overflow: hidden;
+}
+
+.ai-progress-bar {
+  height: 100%;
+  width: 35%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.55),
+    rgba(14, 165, 233, 0.9)
+  );
+  animation: progressWave 1.2s ease-in-out infinite;
+}
+
+@keyframes orbitSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes corePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes progressWave {
+  0% {
+    transform: translateX(-40%);
+  }
+  50% {
+    transform: translateX(140%);
+  }
+  100% {
+    transform: translateX(-40%);
   }
 }
 
@@ -436,4 +623,112 @@ body.theme-ocean-mint .diagram-root {
     rgba(96, 165, 250, 0.1) 0%,
     rgba(168, 85, 247, 0.1) 100%
   );
+}
+
+/* ─── AI Agent Panel ──────────────────────────────────────────────────────── */
+
+/* Typing dot bounce */
+@keyframes aiDotBounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+/* AI block insert animation */
+.ai-block-insert {
+  animation: aiBlockSlideIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+}
+@keyframes aiBlockSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* AI edit highlight (blue glow) */
+.ai-edit-highlight {
+  animation: aiEditPulse 1.6s ease-in-out !important;
+}
+@keyframes aiEditPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background: transparent;
+  }
+  25% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+    background: rgba(59, 130, 246, 0.08);
+  }
+  80% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    background: rgba(59, 130, 246, 0.03);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    background: transparent;
+  }
+}
+
+/* AI replace cross-fade */
+.ai-replace-in {
+  animation: aiReplaceFade 0.4s ease both !important;
+}
+@keyframes aiReplaceFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pending change diff glow on blocks */
+.ai-pending-block {
+  position: relative;
+  border-left: 3px solid rgba(16, 185, 129, 0.7) !important;
+  background: rgba(16, 185, 129, 0.05) !important;
+  border-radius: 4px;
+}
+
+/* AI skeleton loading */
+.ai-skeleton {
+  background: linear-gradient(
+    90deg,
+    #27272a 25%,
+    #3f3f46 50%,
+    #27272a 75%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: aiSkeleton 1.4s ease-in-out infinite !important;
+  border-radius: 4px;
+  color: transparent !important;
+}
+@keyframes aiSkeleton {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Hide scrollbar for suggestion chips */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

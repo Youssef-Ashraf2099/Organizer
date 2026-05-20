@@ -13,8 +13,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { usePageStore } from "../../core/store/pageStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import Database from "@tauri-apps/plugin-sql";
-import { DB_URL } from "../../core/db/sqlite";
+import { getSharedDb } from "../../core/db/sqlite";
 import { MathBlock } from "./MathBlock";
 import { ImageBlock } from "./ImageBlock";
 import { VideoBlock } from "./VideoBlock";
@@ -24,6 +23,7 @@ import { ChartBlock } from "./ChartBlock";
 import { KanbanBlock } from "./KanbanBlock";
 import { AudioBlock } from "./AudioBlock";
 import { markdownToBlocks, htmlToMarkdown } from "./markdownParser";
+import { serializeBlocksForAI } from "./blockSerializer";
 import { AnimatePresence, motion } from "framer-motion";
 import { FaCalculator } from "@react-icons/all-files/fa/FaCalculator";
 import { FaImage } from "@react-icons/all-files/fa/FaImage";
@@ -176,6 +176,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
   const [editor, setEditor] = useState<BlockNoteEditor<any> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
+  const [aiPendingChanges, setAiPendingChanges] = useState(false);
 
   useEffect(() => {
     if (!exportToast) return;
@@ -199,7 +200,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
           return;
         }
 
-        const db = await Database.load(DB_URL);
+        const db = await getSharedDb();
         const json = JSON.stringify(content);
         const existing = await db.select<any[]>(
           "SELECT id FROM blocks WHERE page_id = $1",
@@ -243,7 +244,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
       try {
         let loaded: PartialBlock[] = [];
         if (isTauriRuntime()) {
-          const db = await Database.load(DB_URL);
+          const db = await getSharedDb();
           const rows = await db.select<any[]>(
             "SELECT content FROM blocks WHERE page_id = $1",
             [activePageId],
@@ -559,6 +560,219 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
       unlisten.then((f) => f());
     };
   }, [editor, activePageId]);
+
+  // Expose editor snapshot for the AI undo system
+  useEffect(() => {
+    if (!editor) return;
+    (window as any).__editorSnapshot = editor.document;
+    const unsubscribe = editor.onChange(() => {
+      (window as any).__editorSnapshot = editor.document;
+    });
+    return () => unsubscribe?.();
+  }, [editor]);
+
+  // Respond to getPageContent event (for AI panel context)
+  // Uses the block serializer to give the AI precise, type-aware context
+  // instead of a lossy markdown dump.
+  useEffect(() => {
+    if (!editor) return;
+    const handleGetContent = () => {
+      const { text } = serializeBlocksForAI(editor.document as any[]);
+      (window as any).__currentPageContent = text;
+    };
+    window.addEventListener("getPageContent", handleGetContent);
+    return () => window.removeEventListener("getPageContent", handleGetContent);
+  }, [editor]);
+
+  // Handle AI Tool Commands (DOM event — works in both Tauri & web)
+  useEffect(() => {
+    if (!editor || !activePageId) return;
+
+    const applyCommand = (action: string, params: Record<string, any>) => {
+      // ── Block-native handlers (new protocol) ──────────────────────────────
+      if (action === "insert_blocks") {
+        // params.blocks is a BlockNote-ready array from the AI
+        const rawBlocks: any[] = Array.isArray(params.blocks) ? params.blocks : [];
+        if (rawBlocks.length === 0) return;
+        const anchor = editor.document[editor.document.length - 1];
+        if (anchor) {
+          editor.insertBlocks(rawBlocks, anchor, "after");
+        } else {
+          editor.insertBlocks(rawBlocks, editor.document[0] ?? null, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(true);
+        return;
+      }
+
+      if (action === "replace_page") {
+        // params.blocks is the full new page as a BlockNote array
+        const rawBlocks: any[] = Array.isArray(params.blocks) ? params.blocks : [];
+        if (rawBlocks.length === 0) return;
+        const existing = editor.document.map((b: any) => b.id);
+        if (existing.length > 0) editor.removeBlocks(existing);
+        const first = editor.document[0];
+        if (first) {
+          editor.updateBlock(first, rawBlocks[0] as any);
+          if (rawBlocks.length > 1)
+            editor.insertBlocks(rawBlocks.slice(1), first, "after");
+        } else {
+          editor.insertBlocks(rawBlocks, editor.document[0] ?? null, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(true);
+        return;
+      }
+
+      // ── Legacy markdown-based handlers (backward compat) ──────────────────
+      if (action === "insert_block") {
+        const blocks = editor.document;
+        const anchor = blocks[blocks.length - 1];
+        const content = (params.content ?? params.text ?? "") as string;
+        const rawType = (params.type ?? "paragraph") as string;
+        if (rawType === "markdown") {
+          const parsed = markdownToBlocks(content);
+          const next =
+            parsed.length > 0 ? parsed : [{ type: "paragraph", content }];
+          if (anchor) {
+            editor.insertBlocks(next as any[], anchor, "after");
+          }
+          setAiPendingChanges(true);
+          return;
+        }
+
+        const allowedTypes = [
+          "paragraph",
+          "heading",
+          "bulletListItem",
+          "numberedListItem",
+          "math",
+          "mermaid",
+          "chart",
+          "kanban",
+          "image",
+          "video",
+          "audio",
+          "pdf",
+        ];
+        const safeType = allowedTypes.includes(rawType) ? rawType : "paragraph";
+        const newBlock: any = {
+          type: safeType,
+          content,
+        };
+        if (params.level) newBlock.props = { level: params.level };
+        if (anchor) {
+          editor.insertBlocks([newBlock], anchor, "after");
+        }
+        setAiPendingChanges(true);
+      } else if (action === "replace_all") {
+        const markdown = (params.markdown ??
+          params.content ??
+          params.text ??
+          "") as string;
+        if (!markdown) return;
+        const parsed = markdownToBlocks(markdown);
+        const next =
+          parsed.length > 0
+            ? parsed
+            : [{ type: "paragraph", content: markdown }];
+        const existing = editor.document.map((b: any) => b.id);
+        if (existing.length > 0) editor.removeBlocks(existing);
+        const first = editor.document[0];
+        if (first) {
+          editor.updateBlock(first, next[0] as any);
+          if (next.length > 1)
+            editor.insertBlocks(next.slice(1), first, "after");
+        } else {
+          editor.insertBlocks(next, editor.document[0] ?? null, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(true);
+      } else if (
+        action === "replace_text" &&
+        params.find &&
+        params.replace !== undefined
+      ) {
+        const blocks = editor.document;
+        blocks.forEach((block: any) => {
+          if (Array.isArray(block.content)) {
+            const full = block.content.map((s: any) => s.text ?? "").join("");
+            if (full.includes(params.find as string)) {
+              editor.updateBlock(block, {
+                content: full.replace(
+                  params.find as string,
+                  params.replace as string,
+                ),
+              } as any);
+            }
+          }
+        });
+        setAiPendingChanges(true);
+      }
+    };
+
+    // DOM-based listener (used by AiAgentPanel)
+    const handleDomCommand = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ action: string; params: Record<string, any> }>
+      ).detail;
+      if (!detail) return;
+      try {
+        applyCommand(detail.action, detail.params);
+      } catch (err) {
+        console.error("AI DOM command error:", err);
+      }
+    };
+
+    window.addEventListener("aiToolCommand", handleDomCommand);
+
+    // Tauri event listener (from Rust bridge) — uses dynamic import to avoid ESM issues
+    let tauriUnlisten: (() => void) | null = null;
+    if (isTauriRuntime()) {
+      import("@tauri-apps/api/event").then(({ listen: tauriListen }) => {
+        tauriListen<any>("aiToolCommand", (event: any) => {
+          try {
+            const payload =
+              typeof event.payload === "string"
+                ? JSON.parse(event.payload)
+                : event.payload;
+            applyCommand(payload.action, payload.params ?? {});
+          } catch (e) {
+            console.error("Failed to parse Tauri AI Tool Command", e);
+          }
+        }).then((fn: () => void) => {
+          tauriUnlisten = fn;
+        });
+      });
+    }
+
+    // Undo handler — restores editor to a previous snapshot
+    const handleUndo = (e: Event) => {
+      const snapshot = (e as CustomEvent<{ snapshot: any[] }>).detail?.snapshot;
+      if (!snapshot || !Array.isArray(snapshot)) return;
+      try {
+        const existing = editor.document.map((b: any) => b.id);
+        if (existing.length > 0) editor.removeBlocks(existing);
+        const first = editor.document[0];
+        if (first && snapshot.length > 0) {
+          editor.updateBlock(first, snapshot[0] as any);
+          if (snapshot.length > 1)
+            editor.insertBlocks(snapshot.slice(1), first, "after");
+        }
+        debouncedSave(editor.document, activePageId);
+        setAiPendingChanges(false);
+      } catch (err) {
+        console.error("AI undo error:", err);
+      }
+    };
+    window.addEventListener("aiUndoChange", handleUndo);
+
+    return () => {
+      window.removeEventListener("aiToolCommand", handleDomCommand);
+      window.removeEventListener("aiUndoChange", handleUndo);
+      tauriUnlisten?.();
+    };
+  }, [editor, activePageId, debouncedSave]);
 
   // Handle Insert Image from URL
   const handleInsertImageUrl = () => {
@@ -1424,6 +1638,31 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* AI Changes Action Bar */}
+      {aiPendingChanges && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white dark:bg-zinc-800 border border-blue-500/30 shadow-2xl shadow-blue-500/20 rounded-full px-6 py-3 flex items-center gap-4 animate-in slide-in-from-bottom-5">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            ✨ AI updated the page
+          </span>
+          <div className="w-px h-4 bg-zinc-300 dark:bg-zinc-700"></div>
+          <button
+            onClick={() => {
+              editor?.undo();
+              setAiPendingChanges(false);
+            }}
+            className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
+          >
+            Undo
+          </button>
+          <button
+            onClick={() => setAiPendingChanges(false)}
+            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+          >
+            Accept
+          </button>
         </div>
       )}
     </motion.div>

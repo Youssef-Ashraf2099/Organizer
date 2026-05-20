@@ -25,3 +25,5 @@ dist-ssr
 
 .env
 AI-engine/models/Phi-3-mini-4k-instruct-q4.gguf
+AI-engine/Memory/models/Phi-3-mini-4k-instruct-q4.gguf
+AI-engine/Memory/models/gemma-4-e2b-it-q4_k_m.gguf
