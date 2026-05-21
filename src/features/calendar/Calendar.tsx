@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { FaChevronLeft } from "@react-icons/all-files/fa/FaChevronLeft";
 import { FaChevronRight } from "@react-icons/all-files/fa/FaChevronRight";
+import { FaDownload } from "@react-icons/all-files/fa/FaDownload";
+import { FaUpload } from "@react-icons/all-files/fa/FaUpload";
 import { FaPlus } from "@react-icons/all-files/fa/FaPlus";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import { FaTimes } from "@react-icons/all-files/fa/FaTimes";
@@ -26,6 +28,12 @@ export type CalendarEvent = {
   reminder?: string; // ISO datetime for reminder
   repeatEnabled?: boolean;
   repeatPattern?: RepeatPattern;
+};
+
+type CalendarExportPayload = {
+  version: 1;
+  exportedAt: string;
+  events: CalendarEvent[];
 };
 
 type CalendarOccurrence = CalendarEvent & {
@@ -54,6 +62,52 @@ const occursOnDate = (event: CalendarEvent, dateStr: string) => {
   const eventDay = Number(event.date.split("-")[2]);
   const targetDay = Number(dateStr.split("-")[2]);
   return eventDay === targetDay;
+};
+
+const isRepeatPattern = (value: unknown): value is RepeatPattern =>
+  value === "daily" || value === "weekly" || value === "monthly";
+
+const isCalendarEvent = (value: unknown): value is CalendarEvent => {
+  if (!value || typeof value !== "object") return false;
+
+  const event = value as Record<string, unknown>;
+  return (
+    typeof event.id === "string" &&
+    typeof event.title === "string" &&
+    typeof event.date === "string" &&
+    typeof event.tag === "string" &&
+    (event.time === undefined || typeof event.time === "string") &&
+    (event.description === undefined ||
+      typeof event.description === "string") &&
+    (event.linkedTaskId === undefined ||
+      typeof event.linkedTaskId === "string") &&
+    (event.reminder === undefined || typeof event.reminder === "string") &&
+    (event.repeatEnabled === undefined ||
+      typeof event.repeatEnabled === "boolean") &&
+    (event.repeatPattern === undefined || isRepeatPattern(event.repeatPattern))
+  );
+};
+
+const parseCalendarExport = (value: unknown): CalendarEvent[] => {
+  const candidates = Array.isArray(value)
+    ? value
+    : value &&
+        typeof value === "object" &&
+        Array.isArray((value as { events?: unknown }).events)
+      ? (value as { events: unknown[] }).events
+      : [];
+
+  return candidates.filter(isCalendarEvent);
+};
+
+const downloadTextFile = (filename: string, content: string) => {
+  const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 const EVENT_TAGS = [
@@ -308,6 +362,7 @@ export const Calendar = () => {
   const [isAddingEvent, setIsAddingEvent] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const calendarImportRef = useRef<HTMLInputElement>(null);
 
   // Load events from localStorage on mount
   useEffect(() => {
@@ -380,6 +435,68 @@ export const Calendar = () => {
         occurrenceId: `${e.id}:${dateStr}`,
       }))
       .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  };
+
+  const exportCalendar = () => {
+    const payload: CalendarExportPayload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      events,
+    };
+
+    downloadTextFile(
+      `calendar-events-${new Date().toISOString().slice(0, 10)}.json`,
+      `${JSON.stringify(payload, null, 2)}\n`,
+    );
+  };
+
+  const openImportPicker = () => {
+    calendarImportRef.current?.click();
+  };
+
+  const handleImportCalendar = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    try {
+      const importedEvents = parseCalendarExport(
+        JSON.parse(await file.text()) as unknown,
+      );
+
+      if (importedEvents.length === 0) {
+        alert("The selected file does not contain any calendar events.");
+        return;
+      }
+
+      const shouldReplace = confirm(
+        `Replace the current calendar with ${importedEvents.length} imported event${importedEvents.length === 1 ? "" : "s"}?`,
+      );
+
+      if (!shouldReplace) return;
+
+      events.forEach((existingEvent) => {
+        notificationService.removeRemindersForItem(existingEvent.id);
+      });
+
+      importedEvents.forEach((importedEvent) => {
+        if (!importedEvent.reminder) return;
+        notificationService.scheduleReminder({
+          type: "event_reminder",
+          title: `📅 Event Reminder: ${importedEvent.title}`,
+          body: importedEvent.description || `Upcoming: ${importedEvent.title}`,
+          scheduledAt: new Date(importedEvent.reminder).toISOString(),
+          linkedId: importedEvent.id,
+        });
+      });
+
+      setEvents(importedEvents);
+      setSelectedDate(importedEvents[0].date);
+    } catch (error) {
+      console.error("Failed to import calendar:", error);
+      alert("Could not import the selected calendar file.");
+    }
   };
 
   const isToday = (day: number) => {
@@ -458,7 +575,7 @@ export const Calendar = () => {
       <div
         key={day}
         onClick={() => setSelectedDate(dateStr)}
-        className={`relative rounded-xl p-2 cursor-pointer transition-all h-24 flex flex-col gap-1 border border-zinc-800/60 ${
+        className={`relative rounded-xl p-2 cursor-pointer transition-all h-28 flex flex-col gap-1 border border-zinc-800/60 ${
           today
             ? "border-blue-500/50 bg-blue-500/10 shadow-[inset_0_0_20px_rgba(59,130,246,0.1)]"
             : isPast
@@ -490,8 +607,11 @@ export const Calendar = () => {
             </span>
           )}
         </div>
-        <div className="space-y-1 overflow-hidden flex-1">
-          {dayEvents.slice(0, 3).map((event) => (
+        <div
+          className="space-y-1 overflow-y-auto flex-1 pr-0.5"
+          style={{ scrollbarWidth: "thin" }}
+        >
+          {dayEvents.map((event) => (
             <div
               key={event.occurrenceId}
               className={`text-[10px] leading-tight px-1.5 py-1 rounded-md overflow-hidden font-medium ${
@@ -521,11 +641,6 @@ export const Calendar = () => {
               </div>
             </div>
           ))}
-          {dayEvents.length > 3 && (
-            <div className="text-[10px] text-zinc-500 px-1 font-medium">
-              +{dayEvents.length - 3} more
-            </div>
-          )}
         </div>
       </div>,
     );
@@ -544,6 +659,31 @@ export const Calendar = () => {
           Calendar & Events
         </h2>
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openImportPicker}
+              className="inline-flex items-center gap-2 rounded-xl border border-zinc-700/60 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+            >
+              <FaUpload size={12} />
+              Import
+            </button>
+            <button
+              type="button"
+              onClick={exportCalendar}
+              className="inline-flex items-center gap-2 rounded-xl border border-blue-500/40 bg-blue-600/20 px-3 py-2 text-sm font-medium text-blue-200 transition-colors hover:border-blue-400 hover:bg-blue-600/30"
+            >
+              <FaDownload size={12} />
+              Export
+            </button>
+            <input
+              ref={calendarImportRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleImportCalendar}
+            />
+          </div>
           <div className="flex items-center bg-zinc-900 border border-zinc-700/50 rounded-xl overflow-hidden shadow-sm">
             <button
               onClick={prevMonth}

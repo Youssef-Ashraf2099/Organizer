@@ -594,7 +594,7 @@ export const DiagramStudio = () => {
         image.naturalHeight || image.height || 800,
       );
       const canvas = document.createElement("canvas");
-      const exportScale = 2;
+      const exportScale = 1.5;
       canvas.width = naturalWidth * exportScale;
       canvas.height = naturalHeight * exportScale;
 
@@ -612,11 +612,12 @@ export const DiagramStudio = () => {
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-      const imageData = canvas.toDataURL("image/png");
+      const imageData = canvas.toDataURL("image/jpeg", 0.85);
       const pdf = new jsPDF({
         orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
         unit: "pt",
         format: "a4",
+        compress: true,
       });
 
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -635,7 +636,7 @@ export const DiagramStudio = () => {
       const x = (pageWidth - drawWidth) / 2;
       const y = (pageHeight - drawHeight) / 2;
 
-      pdf.addImage(imageData, "PNG", x, y, drawWidth, drawHeight);
+      pdf.addImage(imageData, "JPEG", x, y, drawWidth, drawHeight);
       pdf.save(buildDiagramExportName(activeDiagramTitle, "pdf"));
       showToast(
         "success",

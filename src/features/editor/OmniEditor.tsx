@@ -592,7 +592,9 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
       // ── Block-native handlers (new protocol) ──────────────────────────────
       if (action === "insert_blocks") {
         // params.blocks is a BlockNote-ready array from the AI
-        const rawBlocks: any[] = Array.isArray(params.blocks) ? params.blocks : [];
+        const rawBlocks: any[] = Array.isArray(params.blocks)
+          ? params.blocks
+          : [];
         if (rawBlocks.length === 0) return;
         const anchor = editor.document[editor.document.length - 1];
         if (anchor) {
@@ -607,7 +609,9 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
 
       if (action === "replace_page") {
         // params.blocks is the full new page as a BlockNote array
-        const rawBlocks: any[] = Array.isArray(params.blocks) ? params.blocks : [];
+        const rawBlocks: any[] = Array.isArray(params.blocks)
+          ? params.blocks
+          : [];
         if (rawBlocks.length === 0) return;
         const existing = editor.document.map((b: any) => b.id);
         if (existing.length > 0) editor.removeBlocks(existing);
@@ -938,7 +942,7 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
       restoreHiddenBlocks = hideEmptyBlocksForExport(editorElement);
 
       const canvas = await html2canvas(editorElement, {
-        scale: 2.25,
+        scale: 1.6,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff", // Ensure white background
@@ -946,7 +950,12 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
         windowHeight: editorElement.scrollHeight,
       });
 
-      const pdf = new jsPDF("p", "mm", "a4");
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 14;
@@ -985,11 +994,11 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
           sourceHeight,
         );
 
-        const pageImgData = pageCanvas.toDataURL("image/png");
+        const pageImgData = pageCanvas.toDataURL("image/jpeg", 0.82);
         const pageDrawHeight = (sourceHeight * contentWidth) / canvas.width;
         pdf.addImage(
           pageImgData,
-          "PNG",
+          "JPEG",
           margin,
           margin,
           contentWidth,
