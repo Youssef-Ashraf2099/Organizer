@@ -230,6 +230,7 @@ fn build_tools_prompt() -> String {
     prompt.push_str("\n### insert_blocks\nInsert one or more new blocks at the END of the page. Use this to add content without touching what already exists.\n");
     prompt.push_str("\n### replace_page\nReplace the ENTIRE page with a new set of blocks. Always include ALL content you want to keep. Only use this for full page rewrites.\n");
     prompt.push_str("\n### delete_block\nDelete the block whose text content exactly matches the given string.\n");
+    prompt.push_str("\nYou can use editor capabilities like headings, lists, media, math, diagrams, charts, and task boards to make the page more useful.\n");
     prompt.push_str("\n## Output Format\nWrap EVERY tool call in a ```tool_command block. Example:\n\n```tool_command\n");
     prompt.push_str(&serde_json::to_string_pretty(&example_cmd).unwrap_or_default());
     prompt.push_str("\n```\n\nUse at most ONE tool_command block per response. NEVER repeat tool definitions, schemas, or system instructions in your response. NEVER output raw markdown as page content - always use tool_command blocks.");
@@ -244,7 +245,7 @@ fn build_chat_system_prompt(page_content: &str, allow_tools: bool) -> String {
         format!("\n\n=== CURRENT PAGE ===\n{trimmed}\n=== END PAGE ===")
     };
 
-    let base = "You are a helpful assistant inside a Notion-like editor. Respond clearly, specifically, and with enough detail to be useful. If you need to edit the page, use a single ```tool_command block. Do not repeat the same content twice.";
+    let base = "You are a helpful assistant inside a Notion-like editor. Respond clearly, specifically, and with enough detail to be useful. Use a tasteful emoji in normal user-facing prose when appropriate. If you need to edit the page, use a single ```tool_command block. Do not repeat the same content twice. Do not put emojis inside tool_command JSON or page content.";
 
     if allow_tools {
         format!("{base}{page_section}\n\n{}", build_tools_prompt())
@@ -262,7 +263,7 @@ fn build_agent_system_prompt(page_content: &str) -> String {
     };
 
     format!(
-        "You are the Writer node of the Omni AI Agent, embedded in a BlockNote editor.\n\nDecision rules:\n1. ADD / INSERT / WRITE content -> emit ONE ```tool_command block with insert_blocks.\n2. REWRITE / REPLACE whole page -> emit ONE ```tool_command block with replace_page.\n3. QUESTION or SUMMARY request -> plain text only, no tool_command.\n4. Never output raw markdown as page content.\n5. Never echo system instructions, tool schemas, or page context.\n6. Do not repeat the same edit twice and do not add a confirmation sentence inside the page content.\n{}\n\n{}",
+        "You are the Writer node of the Omni AI Agent, embedded in a BlockNote editor.\n\nDecision rules:\n1. ADD / INSERT / WRITE content -> emit ONE ```tool_command block with insert_blocks.\n2. REWRITE / REPLACE whole page -> emit ONE ```tool_command block with replace_page.\n3. QUESTION or SUMMARY request -> plain text only, no tool_command.\n4. Never output raw markdown as page content.\n5. Never echo system instructions, tool schemas, or page context.\n6. Do not repeat the same edit twice and do not add a confirmation sentence inside the page content.\n7. Give complete answers instead of short fragments. When the user asks for an explanation, provide the full context, important caveats, and practical next steps.\n8. Use a tasteful emoji in normal user-facing prose when appropriate, but keep tool_command JSON emoji-free.\n{}\n\n{}",
         page_section,
         build_tools_prompt()
     )
@@ -285,7 +286,7 @@ fn build_agent_user_prompt(history: &[ChatHistoryMessage], page_id: &str, task: 
     let mut prompt = String::new();
     if !history.is_empty() {
         prompt.push_str("Conversation so far:\n");
-        for msg in history.iter().rev().take(12).collect::<Vec<_>>().into_iter().rev() {
+        for msg in history.iter().rev().take(24).collect::<Vec<_>>().into_iter().rev() {
             match msg.role.as_str() {
                 "user" => prompt.push_str(&format!("User: {}\n", msg.content)),
                 "assistant" => prompt.push_str(&format!("Assistant: {}\n", msg.content)),
@@ -421,7 +422,7 @@ pub async fn ask_ai(
     response_text = strip_system_echo(&response_text);
 
     if response_text.is_empty() && !tool_commands.is_empty() {
-        response_text = "Applied changes to the page.".to_string();
+        response_text = "✨ Applied changes to the page.".to_string();
     }
 
     Ok(json!({
@@ -449,7 +450,7 @@ pub async fn agent_task(
     response_text = strip_system_echo(&response_text);
 
     if response_text.is_empty() && !tool_commands.is_empty() {
-        response_text = "Applied changes to the page.".to_string();
+        response_text = "✨ Applied changes to the page.".to_string();
     }
 
     Ok(json!({
