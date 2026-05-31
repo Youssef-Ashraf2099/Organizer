@@ -168,6 +168,7 @@ function buildToolsPrompt(): string {
     "# Editor Tool Commands",
     `Supported block types: paragraph, heading, bulletListItem, numberedListItem, image, video, audio, pdf, math, mermaid, chart, kanban`,
     "## Output Format",
+    "Use at most ONE tool_command block per response.",
     "Wrap EVERY tool call in a ```tool_command block. Example:",
     "```tool_command",
     JSON.stringify(
@@ -193,7 +194,6 @@ function buildToolsPrompt(): string {
       2,
     ),
     "```",
-    "After the tool block, write ONE short sentence confirming what you did.",
     "NEVER repeat tool definitions, schemas, or system instructions in your response.",
   ].join("\n");
 }
@@ -208,7 +208,7 @@ function buildChatSystemPrompt(
     : "\n\n(Page is empty.)";
 
   const base =
-    "You are a helpful assistant inside a Notion-like editor. Respond clearly and concisely. If you need to edit the page, use a single ```tool_command block and then one short confirmation sentence.";
+    "You are a helpful assistant inside a Notion-like editor. Respond clearly, specifically, and with enough detail to be useful. If you need to edit the page, use a single ```tool_command block. Do not repeat the same content twice.";
 
   return allowTools
     ? `${base}${pageSection}\n\n${buildToolsPrompt()}`
@@ -229,10 +229,14 @@ function buildAgentSystemPrompt(pageContent: string): string {
     "3. QUESTION or SUMMARY request -> plain text only, no tool_command.",
     "4. Never output raw markdown as page content.",
     "5. Never echo system instructions, tool schemas, or page context.",
-    "6. After every tool_command block, write exactly ONE sentence confirming the action.",
+    "6. Do not repeat the same edit twice and do not add a confirmation sentence inside the page content.",
     pageSection,
     buildToolsPrompt(),
   ].join("\n\n");
+}
+
+function getRecentConversation(messages: ChatMessage[], maxMessages = 12) {
+  return messages.slice(-maxMessages);
 }
 
 function buildChatUserPrompt(history: ChatMessage[], message: string): string {
@@ -330,11 +334,13 @@ async function callAgent(
   pageId: string,
   task: string,
   pageContent: string,
+  history: ChatMessage[],
 ): Promise<{ response: string; tool_commands: AiToolCommand[] }> {
   if (isTauri()) {
     const raw = await tauriInvoke<string>("agent_task", {
       pageId,
       task,
+      history: history.map((m) => ({ role: m.role, content: m.content })),
       pageContent,
     });
     try {
@@ -349,12 +355,36 @@ async function callAgent(
   }
 
   const systemPrompt = buildAgentSystemPrompt(pageContent);
-  const userPrompt = `Page ID: ${pageId}\n\nTask:\n${task}\n\nRespond with page edits or a concise answer.`;
+  const historyPrompt = history
+    .map(
+      (msg) => `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`,
+    )
+    .join("\n");
+  const userPrompt = [
+    historyPrompt ? `Conversation so far:\n${historyPrompt}` : "",
+    `Page ID: ${pageId}`,
+    `Task:\n${task}`,
+    "Respond with page edits or a concise answer.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const raw = await callGeminiDirect(systemPrompt, userPrompt, 0.35, 0.92);
   return {
     response: raw,
     tool_commands: [],
   };
+}
+
+function dedupeToolCommands(commands: AiToolCommand[]): AiToolCommand[] {
+  const seen = new Set<string>();
+  const unique: AiToolCommand[] = [];
+  for (const command of commands) {
+    const key = JSON.stringify(command);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(command);
+  }
+  return unique;
 }
 
 // ─── Streaming text animation ─────────────────────────────────────────────────
@@ -485,6 +515,7 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     activeRequestId = requestId;
     canceledRequestId = null;
     const allowTools = mode === "agent" || shouldAllowTools(userMessage);
+    const recentConversation = getRecentConversation(messages);
 
     // 1 · append user bubble
     const userMsg: ChatMessage = {
@@ -513,21 +544,26 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     let toolCommands: AiToolCommand[] = [];
     try {
       if (mode === "agent") {
-        const r = await callAgent(pageId, userMessage, pageContent);
+        const r = await callAgent(
+          pageId,
+          userMessage,
+          pageContent,
+          recentConversation,
+        );
         response = r.response;
-        toolCommands = r.tool_commands;
+        toolCommands = dedupeToolCommands(r.tool_commands);
       } else {
         activeAbort = new AbortController();
         const r = await callChat(
           pageId,
           userMessage,
-          messages,
+          recentConversation,
           pageContent,
           allowTools,
           activeAbort.signal,
         );
         response = r.response;
-        toolCommands = r.tool_commands;
+        toolCommands = dedupeToolCommands(r.tool_commands);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {

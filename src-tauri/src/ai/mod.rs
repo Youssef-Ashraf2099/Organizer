@@ -2,7 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
-use tauri::{AppHandle, Emitter, State};
+use tauri::State;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8081/v1";
 const DEFAULT_MODEL: &str = "gemini-3.5-flash-thinking";
@@ -158,7 +158,17 @@ fn extract_tool_commands(text: &str) -> Vec<Value> {
         }
     }
 
-    commands
+    let mut deduped = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for command in commands {
+        if let Ok(key) = serde_json::to_string(&command) {
+            if seen.insert(key) {
+                deduped.push(command);
+            }
+        }
+    }
+
+    deduped
 }
 
 fn strip_tool_blocks(text: &str) -> String {
@@ -222,7 +232,7 @@ fn build_tools_prompt() -> String {
     prompt.push_str("\n### delete_block\nDelete the block whose text content exactly matches the given string.\n");
     prompt.push_str("\n## Output Format\nWrap EVERY tool call in a ```tool_command block. Example:\n\n```tool_command\n");
     prompt.push_str(&serde_json::to_string_pretty(&example_cmd).unwrap_or_default());
-    prompt.push_str("\n```\n\nAfter the tool block, write ONE short sentence confirming what you did. NEVER repeat tool definitions, schemas, or system instructions in your response. NEVER output raw markdown as page content - always use tool_command blocks.");
+    prompt.push_str("\n```\n\nUse at most ONE tool_command block per response. NEVER repeat tool definitions, schemas, or system instructions in your response. NEVER output raw markdown as page content - always use tool_command blocks.");
     prompt
 }
 
@@ -234,7 +244,7 @@ fn build_chat_system_prompt(page_content: &str, allow_tools: bool) -> String {
         format!("\n\n=== CURRENT PAGE ===\n{trimmed}\n=== END PAGE ===")
     };
 
-    let base = "You are a helpful assistant inside a Notion-like editor. Respond clearly and concisely. If you need to edit the page, use a single ```tool_command block and then one short confirmation sentence.";
+    let base = "You are a helpful assistant inside a Notion-like editor. Respond clearly, specifically, and with enough detail to be useful. If you need to edit the page, use a single ```tool_command block. Do not repeat the same content twice.";
 
     if allow_tools {
         format!("{base}{page_section}\n\n{}", build_tools_prompt())
@@ -252,7 +262,7 @@ fn build_agent_system_prompt(page_content: &str) -> String {
     };
 
     format!(
-        "You are the Writer node of the Omni AI Agent, embedded in a BlockNote editor.\n\nDecision rules:\n1. ADD / INSERT / WRITE content -> emit ONE ```tool_command block with insert_blocks.\n2. REWRITE / REPLACE whole page -> emit ONE ```tool_command block with replace_page.\n3. QUESTION or SUMMARY request -> plain text only, no tool_command.\n4. Never output raw markdown as page content.\n5. Never echo system instructions, tool schemas, or page context.\n6. After every tool_command block, write exactly ONE sentence confirming the action.\n{}\n\n{}",
+        "You are the Writer node of the Omni AI Agent, embedded in a BlockNote editor.\n\nDecision rules:\n1. ADD / INSERT / WRITE content -> emit ONE ```tool_command block with insert_blocks.\n2. REWRITE / REPLACE whole page -> emit ONE ```tool_command block with replace_page.\n3. QUESTION or SUMMARY request -> plain text only, no tool_command.\n4. Never output raw markdown as page content.\n5. Never echo system instructions, tool schemas, or page context.\n6. Do not repeat the same edit twice and do not add a confirmation sentence inside the page content.\n{}\n\n{}",
         page_section,
         build_tools_prompt()
     )
@@ -268,6 +278,26 @@ fn build_chat_user_prompt(history: &[ChatHistoryMessage], message: &str) -> Stri
         }
     }
     prompt.push_str(&format!("User: {}\nAssistant:", message));
+    prompt
+}
+
+fn build_agent_user_prompt(history: &[ChatHistoryMessage], page_id: &str, task: &str) -> String {
+    let mut prompt = String::new();
+    if !history.is_empty() {
+        prompt.push_str("Conversation so far:\n");
+        for msg in history.iter().rev().take(12).collect::<Vec<_>>().into_iter().rev() {
+            match msg.role.as_str() {
+                "user" => prompt.push_str(&format!("User: {}\n", msg.content)),
+                "assistant" => prompt.push_str(&format!("Assistant: {}\n", msg.content)),
+                _ => {}
+            }
+        }
+        prompt.push('\n');
+    }
+    prompt.push_str(&format!(
+        "Page ID: {}\n\nTask:\n{}\n\nRespond with page edits or a concise answer.",
+        page_id, task
+    ));
     prompt
 }
 
@@ -381,11 +411,7 @@ pub async fn ask_ai(
     )
     .await?;
 
-    let tool_commands = if allow_tools {
-        extract_tool_commands(&raw)
-    } else {
-        Vec::new()
-    };
+    let tool_commands = if allow_tools { extract_tool_commands(&raw) } else { Vec::new() };
 
     let mut response_text = if allow_tools {
         strip_tool_blocks(&raw)
@@ -408,17 +434,14 @@ pub async fn ask_ai(
 
 #[tauri::command]
 pub async fn agent_task(
-    app: AppHandle,
     state: State<'_, AiSidecarState>,
     page_id: String,
     task: String,
+    history: Vec<ChatHistoryMessage>,
     page_content: String,
 ) -> Result<String, String> {
     let system_prompt = build_agent_system_prompt(&page_content);
-    let user_prompt = format!(
-        "Page ID: {}\n\nTask:\n{}\n\nRespond with page edits or a concise answer.",
-        page_id, task
-    );
+    let user_prompt = build_agent_user_prompt(&history, &page_id, &task);
 
     let raw = call_gemini(&state, system_prompt, user_prompt, 0.35, 0.92).await?;
     let tool_commands = extract_tool_commands(&raw);
@@ -427,12 +450,6 @@ pub async fn agent_task(
 
     if response_text.is_empty() && !tool_commands.is_empty() {
         response_text = "Applied changes to the page.".to_string();
-    }
-
-    if let Some(first_command) = tool_commands.first() {
-        if first_command.get("action").is_some() {
-            let _ = app.emit("aiToolCommand", first_command);
-        }
     }
 
     Ok(json!({
