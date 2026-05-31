@@ -110,6 +110,18 @@ function htmlToMd(input: string): string {
   return s;
 }
 
+function normalizeCodeLanguage(language: string): string {
+  const value = language.trim().toLowerCase();
+  if (["js", "javascript", "mjs", "cjs"].includes(value)) return "javascript";
+  if (["ts", "typescript", "mts", "cts"].includes(value)) return "typescript";
+  if (["sh", "bash", "shell", "shellscript", "zsh"].includes(value))
+    return "shellscript";
+  if (["plain", "txt", "text"].includes(value)) return "text";
+  if (["yml"].includes(value)) return "yaml";
+  if (["md"].includes(value)) return "markdown";
+  return value;
+}
+
 /**
  * Convert markdown string to BlockNote blocks.
  * Also handles HTML output from the AI by converting it to markdown first.
@@ -282,6 +294,10 @@ export function markdownToBlocks(markdown: string): PartialBlock[] {
 
     // Code block
     if (trimmed.startsWith("```")) {
+      const languageMatch = trimmed.match(/^```\s*([\w-]+)?/);
+      const language = normalizeCodeLanguage(
+        languageMatch?.[1] ?? "javascript",
+      );
       const codeLines: string[] = [];
       i++; // Skip opening ```
       while (i < lines.length && !lines[i].trim().startsWith("```")) {
@@ -292,8 +308,8 @@ export function markdownToBlocks(markdown: string): PartialBlock[] {
 
       const codeContent = codeLines.join("\n");
       blocks.push({
-        type: "code",
-        props: { language: "javascript" },
+        type: "codeBlock",
+        props: { language },
         content: codeContent,
       } as any);
       continue;

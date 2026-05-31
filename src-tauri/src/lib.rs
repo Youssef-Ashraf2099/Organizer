@@ -419,7 +419,6 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(ai::AiSidecarState::default());
-            ai::spawn_sidecar(app.handle());
 
             maybe_migrate_legacy_db(app.handle());
             let startup_markdown_files = collect_startup_markdown_files();

@@ -190,7 +190,7 @@ async def fetch_rag_context(page_id: str, query: str) -> str:
 @router.post("/")
 async def chat_interaction(req: ChatRequest):
     """
-    Multi-turn AI chat powered by the local LLM engine.
+    Multi-turn AI chat powered by the Gemini Web2API-backed engine.
     Returns: { response, tool_commands[] }
     """
     system_prompt = build_system_prompt(req.page_content or "", bool(req.allow_tools))

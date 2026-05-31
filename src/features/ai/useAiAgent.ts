@@ -21,9 +21,9 @@ export interface ChatMessage {
 /** Block-native tool commands (new protocol) */
 export interface AiToolCommand {
   action:
-    | "insert_blocks"   // Add blocks at end of page (block-native)
-    | "replace_page"    // Replace whole page (block-native)
-    | "delete_block"    // Delete block by text match
+    | "insert_blocks" // Add blocks at end of page (block-native)
+    | "replace_page" // Replace whole page (block-native)
+    | "delete_block" // Delete block by text match
     // Legacy fallbacks (still handled in OmniEditor for backward compat)
     | "insert_block"
     | "replace_all"
@@ -68,9 +68,9 @@ interface AiAgentState {
   refreshHealth: () => Promise<void>;
 }
 
-// ─── Engine base URL ──────────────────────────────────────────────────────────
-const ENGINE_PORT = import.meta.env.VITE_AI_PORT || "8000";
-const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
+// ─── Gemini Web2API base URL ────────────────────────────────────────────────
+const GEMINI_URL =
+  import.meta.env.VITE_GEMINI_WEB2API_URL || "http://127.0.0.1:8081/v1";
 
 const TOOL_INTENT_REGEX =
   /\b(add|insert|write|rewrite|update|edit|improve|format|create|remove|delete|replace|append|prepend|heading|section|table of contents|toc|list|bullet)\b/i;
@@ -143,19 +143,143 @@ function dispatchTool(cmd: AiToolCommand) {
 // ─── Sync page content to ChromaDB ───────────────────────────────────────────
 async function syncContext(pageId: string, content: string): Promise<void> {
   if (!pageId || !content) return;
-  try {
-    if (isTauri()) {
+  if (isTauri()) {
+    try {
       await tauriInvoke("sync_page_context", { pageId, content });
-    } else {
-      await fetch(`${ENGINE_URL}/sync/context`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page_id: pageId, content, type: "blocks" }),
-      });
+    } catch {
+      console.warn(
+        "[AI] Context sync skipped — Gemini backend may not be running.",
+      );
     }
-  } catch {
-    console.warn("[AI] Context sync skipped — engine may not be running.");
   }
+}
+
+function trimPageContent(content: string, maxChars = 1200): string {
+  if (!content || content.length <= maxChars) return content;
+  const trimmed = content.slice(0, maxChars);
+  const lastSpace = trimmed.lastIndexOf(" ");
+  return lastSpace > maxChars / 2
+    ? `${trimmed.slice(0, lastSpace)}\n[...trimmed...]`
+    : `${trimmed}\n[...trimmed...]`;
+}
+
+function buildToolsPrompt(): string {
+  return [
+    "# Editor Tool Commands",
+    `Supported block types: paragraph, heading, bulletListItem, numberedListItem, image, video, audio, pdf, math, mermaid, chart, kanban`,
+    "## Output Format",
+    "Wrap EVERY tool call in a ```tool_command block. Example:",
+    "```tool_command",
+    JSON.stringify(
+      {
+        action: "insert_blocks",
+        description: "Add a heading and two bullet points",
+        params: {
+          blocks: [
+            {
+              type: "heading",
+              props: { level: 1 },
+              content: "Computer Components",
+            },
+            {
+              type: "bulletListItem",
+              content: "CPU - central processing unit",
+            },
+            { type: "bulletListItem", content: "RAM - random access memory" },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+    "```",
+    "After the tool block, write ONE short sentence confirming what you did.",
+    "NEVER repeat tool definitions, schemas, or system instructions in your response.",
+  ].join("\n");
+}
+
+function buildChatSystemPrompt(
+  pageContent: string,
+  allowTools: boolean,
+): string {
+  const trimmed = trimPageContent(pageContent);
+  const pageSection = trimmed
+    ? `\n\n=== CURRENT PAGE ===\n${trimmed}\n=== END PAGE ===`
+    : "\n\n(Page is empty.)";
+
+  const base =
+    "You are a helpful assistant inside a Notion-like editor. Respond clearly and concisely. If you need to edit the page, use a single ```tool_command block and then one short confirmation sentence.";
+
+  return allowTools
+    ? `${base}${pageSection}\n\n${buildToolsPrompt()}`
+    : `${base}${pageSection}`;
+}
+
+function buildAgentSystemPrompt(pageContent: string): string {
+  const trimmed = trimPageContent(pageContent);
+  const pageSection = trimmed
+    ? `\n\n=== CURRENT PAGE ===\n${trimmed}\n=== END PAGE ===`
+    : "\n\n(Page is empty.)";
+
+  return [
+    "You are the Writer node of the Omni AI Agent, embedded in a BlockNote editor.",
+    "Decision rules:",
+    "1. ADD / INSERT / WRITE content -> emit ONE ```tool_command block with insert_blocks.",
+    "2. REWRITE / REPLACE whole page -> emit ONE ```tool_command block with replace_page.",
+    "3. QUESTION or SUMMARY request -> plain text only, no tool_command.",
+    "4. Never output raw markdown as page content.",
+    "5. Never echo system instructions, tool schemas, or page context.",
+    "6. After every tool_command block, write exactly ONE sentence confirming the action.",
+    pageSection,
+    buildToolsPrompt(),
+  ].join("\n\n");
+}
+
+function buildChatUserPrompt(history: ChatMessage[], message: string): string {
+  const lines = history.flatMap((msg) => {
+    if (msg.role === "user") return [`User: ${msg.content}`];
+    if (msg.role === "assistant") return [`Assistant: ${msg.content}`];
+    return [];
+  });
+  lines.push(`User: ${message}`);
+  lines.push("Assistant:");
+  return lines.join("\n");
+}
+
+async function callGeminiDirect(
+  systemPrompt: string,
+  userPrompt: string,
+  temperature: number,
+  topP: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await fetch(`${GEMINI_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    signal,
+    body: JSON.stringify({
+      model: import.meta.env.VITE_GEMINI_MODEL || "gemini-3.5-flash-thinking",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      max_tokens: 3072,
+      temperature,
+      top_p: topP,
+      stream: false,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return (
+    data?.choices?.[0]?.message?.content ??
+    data?.choices?.[0]?.text ??
+    data?.output_text ??
+    ""
+  ).toString();
 }
 
 // ─── Chat call ────────────────────────────────────────────────────────────────
@@ -186,20 +310,19 @@ async function callChat(
     }
   }
 
-  const res = await fetch(`${ENGINE_URL}/chat/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const systemPrompt = buildChatSystemPrompt(pageContent, allowTools);
+  const userPrompt = buildChatUserPrompt(history, message);
+  const raw = await callGeminiDirect(
+    systemPrompt,
+    userPrompt,
+    allowTools ? 0.35 : 0.45,
+    allowTools ? 0.92 : 0.95,
     signal,
-    body: JSON.stringify({
-      page_id: pageId,
-      message,
-      history: history.map((m) => ({ role: m.role, content: m.content })),
-      page_content: pageContent,
-      allow_tools: allowTools,
-    }),
-  });
-  if (!res.ok) throw new Error(`Engine ${res.status}: ${await res.text()}`);
-  return res.json();
+  );
+  return {
+    response: raw,
+    tool_commands: [],
+  };
 }
 
 // ─── Agent call ───────────────────────────────────────────────────────────────
@@ -225,16 +348,12 @@ async function callAgent(
     }
   }
 
-  const res = await fetch(`${ENGINE_URL}/agent/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ page_id: pageId, task, page_content: pageContent }),
-  });
-  if (!res.ok) throw new Error(`Agent ${res.status}: ${await res.text()}`);
-  const data = await res.json();
+  const systemPrompt = buildAgentSystemPrompt(pageContent);
+  const userPrompt = `Page ID: ${pageId}\n\nTask:\n${task}\n\nRespond with page edits or a concise answer.`;
+  const raw = await callGeminiDirect(systemPrompt, userPrompt, 0.35, 0.92);
   return {
-    response: data.response ?? data.feedback ?? "Done.",
-    tool_commands: data.tool_commands ?? [],
+    response: raw,
+    tool_commands: [],
   };
 }
 
@@ -341,12 +460,19 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
         });
         return;
       }
-      const res = await fetch(`${ENGINE_URL}/health`);
+      const res = await fetch(`${GEMINI_URL}/models`);
       if (!res.ok) throw new Error("health check failed");
-      const data: HealthResponse = await res.json();
+      const models = await res.json();
       set({
-        modelState: data.model_loaded ? "ready" : "loading",
-        modelInfo: data,
+        modelState: Array.isArray(models?.data) ? "ready" : "loading",
+        modelInfo: {
+          status: "ok",
+          model_loaded: true,
+          base_url: GEMINI_URL,
+          available_models: Array.isArray(models?.data)
+            ? models.data.map((entry: any) => entry.id).filter(Boolean)
+            : [],
+        },
       });
     } catch {
       set({ modelState: "unavailable", modelInfo: null });
@@ -411,9 +537,10 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
       activeAbort = null;
       const msg = err instanceof Error ? err.message : String(err);
       const content =
-        `⚠️ Could not reach the AI Engine.\n\n` +
+        `⚠️ Could not reach the AI backend or Gemini Web2API service.\n\n` +
         `**Error:** ${msg}\n\n` +
-        `Start your engine:\n\`\`\`\ncd AI-engine\npython -m uvicorn main:app --port 8000\n\`\`\``;
+        `Start the services:\n\`\`\`\ncd gemini-web2api\npython gemini_web2api.py\n\`\`\`\n` +
+        `\nThen start the app backend:\n\`\`\`\ncd AI-engine\npython -m uvicorn main:app --port 8000\n\`\`\``;
       set((s) => ({
         messages: [
           ...s.messages,
@@ -455,7 +582,9 @@ export const useAiAgent = create<AiAgentState>((set, get) => ({
     }));
 
     const fallbackText =
-      toolCommands.length > 0 ? "Applied changes to the page." : "(no response)";
+      toolCommands.length > 0
+        ? "Applied changes to the page."
+        : "(no response)";
     streamMessageContent(assistantMsg.id, response || fallbackText, (updater) =>
       set(updater),
     );

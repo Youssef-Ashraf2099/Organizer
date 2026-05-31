@@ -76,6 +76,15 @@ export function serializeBlocksForAI(blocks: any[]): BlockSummary {
       case "mermaid":
         lines.push(`[mermaid diagram] ${(props.code ?? "").slice(0, 60)}…`);
         break;
+      case "codeBlock": {
+        const language = props.language ?? "text";
+        const codeText = extractText(block.content);
+        const preview = codeText.slice(0, 120).replace(/\s+/g, " ");
+        lines.push(
+          `[code ${language}] ${preview}${codeText.length > 120 ? "…" : ""}`,
+        );
+        break;
+      }
       case "chart":
         lines.push(`[chart block] type=${props.chartType ?? "unknown"}`);
         break;

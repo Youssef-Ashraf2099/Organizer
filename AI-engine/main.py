@@ -70,16 +70,7 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    gpu_info = engine.get_gpu_info()
-    return {
-        "status": "ok",
-        "model_loaded": engine.is_loaded(),
-        "model_path": engine.model_path,
-        "n_ctx": engine.n_ctx,
-        "n_threads": engine.n_threads,
-        "n_batch": engine.n_batch,
-        **gpu_info,   # gpu_backend, n_gpu_layers, chat_template
-    }
+    return await engine.health()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

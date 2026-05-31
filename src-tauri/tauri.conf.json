@@ -12,13 +12,15 @@
   "app": {
     "windows": [
       {
-        "title": "tauri-appomni-workspace",
-        "width": 800,
-        "height": 600
+        "title": "Omni Workspace",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'self' http://127.0.0.1:* http://localhost:* asset: https://asset.localhost"
     }
   },
   "bundle": {
@@ -26,10 +28,7 @@
     "targets": "all",
     "fileAssociations": [
       {
-        "ext": [
-          "md",
-          "markdown"
-        ],
+        "ext": ["md", "markdown"],
         "name": "Markdown Document",
         "description": "Markdown text file",
         "mimeType": "text/markdown"

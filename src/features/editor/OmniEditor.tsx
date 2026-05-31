@@ -3,6 +3,7 @@ import {
   BlockNoteEditor,
   PartialBlock,
   BlockNoteSchema,
+  createCodeBlockSpec,
 } from "@blocknote/core";
 import {
   SuggestionMenuController,
@@ -47,9 +48,116 @@ import {
 import { useTemplateStore } from "../../core/store/templateStore";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { createHighlighter } from "shiki";
 
 const AUTOSAVE_DELAY = 1000;
 const WEB_PAGE_CONTENT_STORAGE_KEY = "omni-web-page-content";
+
+const CODE_BLOCK_LANGUAGES: Record<
+  string,
+  { name: string; aliases?: string[] }
+> = {
+  shellscript: {
+    name: "Bash",
+    aliases: ["bash", "sh", "shell", "zsh"],
+  },
+  javascript: { name: "JavaScript", aliases: ["js", "cjs", "mjs"] },
+  typescript: { name: "TypeScript", aliases: ["ts", "cts", "mts"] },
+  json: { name: "JSON" },
+  html: { name: "HTML" },
+  css: { name: "CSS" },
+  python: { name: "Python", aliases: ["py"] },
+  sql: { name: "SQL" },
+  yaml: { name: "YAML", aliases: ["yml"] },
+  markdown: { name: "Markdown", aliases: ["md"] },
+  text: { name: "Plain Text", aliases: ["plain", "txt"] },
+} as const;
+
+const CODE_BLOCK_TEMPLATES: Record<
+  string,
+  { label: string; language: string; code: string }
+> = {
+  bash: {
+    label: "Bash Script",
+    language: "shellscript",
+    code: `#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Hello from Bash"
+for file in *.json; do
+  echo "Processing $file"
+done`,
+  },
+  javascript: {
+    label: "JavaScript",
+    language: "javascript",
+    code: `function greet(name) {
+  const message = \`Hello, \${name}!\`;
+  return message;
+}
+
+console.log(greet("World"));`,
+  },
+  typescript: {
+    label: "TypeScript",
+    language: "typescript",
+    code: `type User = {
+  id: number;
+  name: string;
+};
+
+function formatUser(user: User): string {
+  return \`\${user.id}: \${user.name}\`;
+}`,
+  },
+  json: {
+    label: "JSON",
+    language: "json",
+    code: `{
+  "name": "Organizer",
+  "version": 1,
+  "items": [
+    { "id": 1, "title": "Task" }
+  ]
+}`,
+  },
+  html: {
+    label: "HTML",
+    language: "html",
+    code: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Document</title>
+  </head>
+  <body>
+    <main>Hello world</main>
+  </body>
+</html>`,
+  },
+  css: {
+    label: "CSS",
+    language: "css",
+    code: `:root {
+  --accent: #3b82f6;
+}
+
+.card {
+  color: var(--accent);
+  border-radius: 16px;
+}`,
+  },
+  python: {
+    label: "Python",
+    language: "python",
+    code: `def greet(name: str) -> str:
+    message = f"Hello, {name}!"
+    return message
+
+
+print(greet("World"))`,
+  },
+};
 
 const PAGE_COVER_PRESETS = [
   {
@@ -264,6 +372,27 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
         const schema = BlockNoteSchema.create({
           blockSpecs: {
             ...defaultSchema.blockSpecs,
+            codeBlock: createCodeBlockSpec({
+              defaultLanguage: "javascript",
+              supportedLanguages: CODE_BLOCK_LANGUAGES,
+              createHighlighter: async () =>
+                createHighlighter({
+                  themes: ["dark-plus"],
+                  langs: [
+                    "javascript",
+                    "typescript",
+                    "json",
+                    "shellscript",
+                    "html",
+                    "css",
+                    "python",
+                    "sql",
+                    "yaml",
+                    "markdown",
+                    "text",
+                  ],
+                }),
+            }),
             math: MathBlock(),
             image: ImageBlock(),
             video: VideoBlock(),
@@ -1523,6 +1652,28 @@ export const OmniEditor = ({ onUpload, onSelectText }: OmniEditorProps) => {
                     icon: <FaMicrophone />,
                     subtext: "Record or upload audio",
                   },
+                  ...Object.entries(CODE_BLOCK_TEMPLATES).map(
+                    ([key, template]) => ({
+                      title: template.label,
+                      onItemClick: () => {
+                        editor.insertBlocks(
+                          [
+                            {
+                              type: "codeBlock",
+                              props: { language: template.language },
+                              content: template.code,
+                            },
+                          ],
+                          editor.getTextCursorPosition().block,
+                          "after",
+                        );
+                      },
+                      aliases: [key, template.language],
+                      group: "Code Templates",
+                      icon: <FaFileCode />,
+                      subtext: `Insert a ${template.label} starter template`,
+                    }),
+                  ),
                 ];
 
                 return items.filter((item: any) => {

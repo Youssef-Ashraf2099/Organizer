@@ -7,6 +7,7 @@ import { FaPlus } from "@react-icons/all-files/fa/FaPlus";
 import { FaTrash } from "@react-icons/all-files/fa/FaTrash";
 import { FaTimes } from "@react-icons/all-files/fa/FaTimes";
 import { FaCalendarAlt } from "@react-icons/all-files/fa/FaCalendarAlt";
+import { jsPDF } from "jspdf";
 import { notificationService } from "../../core/services/notificationService";
 
 type RepeatPattern = "daily" | "weekly" | "monthly";
@@ -100,14 +101,391 @@ const parseCalendarExport = (value: unknown): CalendarEvent[] => {
   return candidates.filter(isCalendarEvent);
 };
 
-const downloadTextFile = (filename: string, content: string) => {
-  const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const formatCalendarDate = (dateStr: string) =>
+  new Date(`${dateStr}T00:00`).toLocaleDateString("default", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+const getUpcomingOccurrences = (
+  events: CalendarEvent[],
+  daysAhead: number,
+): CalendarOccurrence[] => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const occurrences: CalendarOccurrence[] = [];
+
+  events.forEach((event) => {
+    if (!event.repeatEnabled || !event.repeatPattern) {
+      if (event.date >= today.toISOString().slice(0, 10)) {
+        occurrences.push({
+          ...event,
+          occurrenceDate: event.date,
+          occurrenceId: `${event.id}:${event.date}`,
+        });
+      }
+      return;
+    }
+
+    for (let offset = 0; offset <= daysAhead; offset += 1) {
+      const candidate = new Date(today);
+      candidate.setDate(today.getDate() + offset);
+      const dateStr = candidate.toISOString().slice(0, 10);
+
+      if (!occursOnDate(event, dateStr)) continue;
+
+      occurrences.push({
+        ...event,
+        occurrenceDate: dateStr,
+        occurrenceId: `${event.id}:${dateStr}`,
+      });
+    }
+  });
+
+  return occurrences.sort((a, b) => {
+    const dateCompare = a.occurrenceDate.localeCompare(b.occurrenceDate);
+    if (dateCompare !== 0) return dateCompare;
+    return (a.time || "").localeCompare(b.time || "");
+  });
+};
+
+const downloadFile = (filename: string, content: string, mimeType: string) => {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+};
+
+const buildCalendarHtml = (events: CalendarEvent[]) => {
+  const upcomingOccurrences = getUpcomingOccurrences(events, 365);
+  const groupedByDate = upcomingOccurrences.reduce<
+    Record<string, CalendarOccurrence[]>
+  >((acc, occurrence) => {
+    if (!acc[occurrence.occurrenceDate]) {
+      acc[occurrence.occurrenceDate] = [];
+    }
+    acc[occurrence.occurrenceDate].push(occurrence);
+    return acc;
+  }, {});
+
+  const daySections = Object.entries(groupedByDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dateStr, dateEvents]) => {
+      const cards = dateEvents
+        .map((event) => {
+          const tagDef = EVENT_TAGS.find((tag) => tag.name === event.tag);
+          const color = TAG_COLOR_MAP[event.tag] ?? "#64748b";
+          return `
+            <li class="event-card" style="border-left-color:${color}">
+              <div class="event-top">
+                <div class="event-title-row">
+                  <span class="event-emoji">${escapeHtml(tagDef?.label.split(" ")[0] ?? "📌")}</span>
+                  <h3>${escapeHtml(event.title)}</h3>
+                </div>
+                <span class="tag-chip" style="background:${color}22;color:${color}">${escapeHtml(tagDef?.label ?? event.tag)}</span>
+              </div>
+              <div class="event-meta">
+                ${event.time ? `<span>${escapeHtml(event.time)}</span>` : "<span>No specific time</span>"}
+                ${event.repeatEnabled ? `<span>• repeat ${escapeHtml(event.repeatPattern || "weekly")}</span>` : ""}
+              </div>
+              ${event.description ? `<p class="event-description">${escapeHtml(event.description)}</p>` : ""}
+              ${event.reminder ? `<p class="event-reminder">Reminder: ${escapeHtml(new Date(event.reminder).toLocaleString())}</p>` : ""}
+            </li>`;
+        })
+        .join("");
+
+      return `
+        <section class="day-section">
+          <h2 class="day-title">${escapeHtml(formatCalendarDate(dateStr))}</h2>
+          <ol class="day-events">
+            ${cards}
+          </ol>
+        </section>`;
+    })
+    .join("");
+
+  const totalEvents = upcomingOccurrences.length;
+  const uniqueDates = new Set(
+    upcomingOccurrences.map((event) => event.occurrenceDate),
+  ).size;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Calendar Export</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #09090b;
+        --panel: #111113;
+        --panel-2: #18181b;
+        --text: #f4f4f5;
+        --muted: #a1a1aa;
+        --border: rgba(255, 255, 255, 0.08);
+        --accent: #3b82f6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(59, 130, 246, 0.14), transparent 35%),
+          linear-gradient(180deg, #09090b 0%, #111113 100%);
+        color: var(--text);
+      }
+      .shell {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .hero {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(168, 85, 247, 0.12));
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 24px;
+        margin-bottom: 20px;
+        backdrop-filter: blur(14px);
+      }
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 5vw, 40px);
+      }
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin: 20px 0;
+      }
+      .stat {
+        background: rgba(17, 17, 19, 0.92);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+      }
+      .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
+      .stat .value { font-size: 24px; font-weight: 700; margin-top: 8px; }
+      .section-title {
+        margin: 24px 0 12px;
+        font-size: 18px;
+      }
+      .day-section {
+        margin-bottom: 16px;
+      }
+      .day-title {
+        margin: 0 0 8px;
+        font-size: 16px;
+        color: #e4e4e7;
+      }
+      .day-events {
+        margin: 0;
+        padding-left: 22px;
+        display: grid;
+        gap: 10px;
+      }
+      .event-card {
+        list-style-position: outside;
+        background: rgba(17, 17, 19, 0.94);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+      }
+      .event-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .event-title-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .event-title-row h3 {
+        margin: 0;
+        font-size: 17px;
+        word-break: break-word;
+      }
+      .event-emoji { font-size: 20px; flex-shrink: 0; }
+      .tag-chip {
+        flex-shrink: 0;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .event-meta,
+      .event-description,
+      .event-reminder {
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .event-description { color: var(--text); }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 40px 16px;
+        border: 1px dashed var(--border);
+        border-radius: 18px;
+        background: rgba(17, 17, 19, 0.65);
+      }
+      @media (max-width: 720px) {
+        .shell { padding: 16px; }
+        .stats { grid-template-columns: 1fr; }
+        .event-top { flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Calendar Export</h1>
+        <p>Open this file on any phone or browser. It contains upcoming calendar events only, grouped by day.</p>
+      </section>
+      <section class="stats">
+        <div class="stat"><div class="label">Events</div><div class="value">${totalEvents}</div></div>
+        <div class="stat"><div class="label">Active dates</div><div class="value">${uniqueDates}</div></div>
+        <div class="stat"><div class="label">Exported</div><div class="value">${escapeHtml(new Date().toLocaleString())}</div></div>
+      </section>
+      <h2 class="section-title">Upcoming Events by Day</h2>
+      ${daySections || '<div class="empty">No upcoming events to export.</div>'}
+    </main>
+  </body>
+</html>`;
+};
+
+const buildCalendarPdf = (events: CalendarEvent[]) => {
+  const pdf = new jsPDF({ unit: "pt", format: "a4", compress: true });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 36;
+  const contentWidth = pageWidth - margin * 2;
+  let cursorY = margin;
+
+  const ensureSpace = (neededHeight: number) => {
+    if (cursorY + neededHeight <= pageHeight - margin) return;
+    pdf.addPage();
+    cursorY = margin;
+  };
+
+  const addLine = (
+    text: string,
+    options?: {
+      size?: number;
+      bold?: boolean;
+      color?: [number, number, number];
+      spacingAfter?: number;
+    },
+  ) => {
+    const size = options?.size ?? 11;
+    pdf.setFont("helvetica", options?.bold ? "bold" : "normal");
+    pdf.setFontSize(size);
+    if (options?.color) pdf.setTextColor(...options.color);
+    const lines = pdf.splitTextToSize(text, contentWidth);
+    ensureSpace(lines.length * size * 1.25 + (options?.spacingAfter ?? 0));
+    pdf.text(lines, margin, cursorY);
+    cursorY += lines.length * size * 1.25 + (options?.spacingAfter ?? 0);
+    pdf.setTextColor(20, 20, 20);
+  };
+
+  pdf.setTextColor(17, 17, 17);
+  addLine("Calendar Export", { size: 22, bold: true, spacingAfter: 10 });
+  addLine("Portable PDF copy of your calendar events.", {
+    size: 11,
+    color: [100, 100, 100],
+    spacingAfter: 12,
+  });
+
+  addLine(`Events: ${events.length}`, { size: 12, bold: true });
+  addLine(`Active dates: ${new Set(events.map((event) => event.date)).size}`, {
+    size: 12,
+    bold: true,
+    spacingAfter: 16,
+  });
+
+  const sortedEvents = [...events].sort((a, b) => {
+    const dateCompare = a.date.localeCompare(b.date);
+    if (dateCompare !== 0) return dateCompare;
+    return (a.time || "").localeCompare(b.time || "");
+  });
+
+  if (sortedEvents.length === 0) {
+    addLine("No events to export.", { size: 12, color: [120, 120, 120] });
+    return pdf;
+  }
+
+  sortedEvents.forEach((event, index) => {
+    const tagDef = EVENT_TAGS.find((tag) => tag.name === event.tag);
+    const tagLabel = tagDef?.label ?? event.tag;
+    const meta = [
+      formatCalendarDate(event.date),
+      event.time ? event.time : null,
+      event.repeatEnabled ? `repeat ${event.repeatPattern || "weekly"}` : null,
+    ]
+      .filter(Boolean)
+      .join(" • ");
+
+    const title = `${index + 1}. ${event.title}`;
+    const estimatedHeight =
+      64 +
+      pdf.splitTextToSize(event.description || "", contentWidth).length * 12;
+    ensureSpace(estimatedHeight);
+    pdf.setFillColor(248, 250, 252);
+    pdf.roundedRect(
+      margin,
+      cursorY - 8,
+      contentWidth,
+      Math.max(48, estimatedHeight - 12),
+      8,
+      8,
+      "S",
+    );
+    addLine(title, { size: 13, bold: true, spacingAfter: 2 });
+    addLine(tagLabel, { size: 10, color: [59, 130, 246], spacingAfter: 0 });
+    addLine(meta, { size: 10, color: [120, 120, 120], spacingAfter: 4 });
+    if (event.description) {
+      addLine(event.description, {
+        size: 11,
+        color: [40, 40, 40],
+        spacingAfter: 2,
+      });
+    }
+    if (event.reminder) {
+      addLine(`Reminder: ${new Date(event.reminder).toLocaleString()}`, {
+        size: 10,
+        color: [107, 114, 128],
+        spacingAfter: 2,
+      });
+    }
+    cursorY += 6;
+  });
+
+  return pdf;
 };
 
 const EVENT_TAGS = [
@@ -437,16 +815,31 @@ export const Calendar = () => {
       .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   };
 
-  const exportCalendar = () => {
+  const exportCalendarHtml = () => {
+    const html = buildCalendarHtml(events);
+    downloadFile(
+      `calendar-export-${new Date().toISOString().slice(0, 10)}.html`,
+      html,
+      "text/html",
+    );
+  };
+
+  const exportCalendarPdf = () => {
+    const pdf = buildCalendarPdf(events);
+    pdf.save(`calendar-export-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const exportCalendarJson = () => {
     const payload: CalendarExportPayload = {
       version: 1,
       exportedAt: new Date().toISOString(),
       events,
     };
 
-    downloadTextFile(
-      `calendar-events-${new Date().toISOString().slice(0, 10)}.json`,
+    downloadFile(
+      `calendar-export-${new Date().toISOString().slice(0, 10)}.json`,
       `${JSON.stringify(payload, null, 2)}\n`,
+      "application/json",
     );
   };
 
@@ -668,14 +1061,32 @@ export const Calendar = () => {
               <FaUpload size={12} />
               Import
             </button>
-            <button
-              type="button"
-              onClick={exportCalendar}
-              className="inline-flex items-center gap-2 rounded-xl border border-blue-500/40 bg-blue-600/20 px-3 py-2 text-sm font-medium text-blue-200 transition-colors hover:border-blue-400 hover:bg-blue-600/30"
-            >
-              <FaDownload size={12} />
-              Export
-            </button>
+            <div className="inline-flex items-center gap-1 rounded-xl border border-blue-500/40 bg-blue-600/20 p-1 text-sm font-medium text-blue-200">
+              <button
+                type="button"
+                onClick={exportCalendarHtml}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-blue-600/25"
+              >
+                <FaDownload size={12} />
+                HTML
+              </button>
+              <button
+                type="button"
+                onClick={exportCalendarPdf}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-blue-600/25"
+              >
+                <FaDownload size={12} />
+                PDF
+              </button>
+              <button
+                type="button"
+                onClick={exportCalendarJson}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-blue-600/25"
+              >
+                <FaDownload size={12} />
+                JSON
+              </button>
+            </div>
             <input
               ref={calendarImportRef}
               type="file"
