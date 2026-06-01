@@ -59,27 +59,19 @@ export async function fetchGoogleCalendarEvents() {
 
   const token = JSON.parse(raw);
   const accessToken = token.access_token;
-
   const now = new Date().toISOString();
 
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now}&maxResults=100&singleEvents=true&orderBy=startTime`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
+    { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
   const data = await res.json();
-
-  if (!data.items) {
-    console.error("Failed to fetch events:", data);
-    return [];
-  }
+  if (!data.items) return [];
 
   return data.items.map((item: any) => ({
     id: item.id,
+    googleEventId: item.id,
     title: item.summary || "Untitled",
     date: (item.start.dateTime || item.start.date).slice(0, 10),
     time: item.start.dateTime
@@ -96,19 +88,82 @@ const getAccessToken = () => {
   return JSON.parse(raw).access_token;
 };
 
+const buildGoogleTimePayload = (event: CalendarEvent) => {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  if (event.time) {
+    const startIso = `${event.date}T${event.time}:00`;
+    const startDate = new Date(startIso);
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+
+    const pad = (num: number) => String(num).padStart(2, "0");
+    const endIso = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}:00`;
+
+    return {
+      start: { dateTime: startIso, timeZone },
+      end: { dateTime: endIso, timeZone },
+    };
+  } else {
+    const startDate = new Date(event.date);
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 1);
+    
+    const endLabel = endDate.toISOString().slice(0, 10);
+
+    return {
+      start: { date: event.date },
+      end: { date: endLabel },
+    };
+  }
+};
+
 export async function createGoogleCalendarEvent(event: CalendarEvent) {
   const accessToken = getAccessToken();
   if (!accessToken) return;
 
+  const timePayload = buildGoogleTimePayload(event);
   const body: any = {
     summary: event.title,
     description: event.description || "",
-    start: event.time
-      ? { dateTime: `${event.date}T${event.time}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-      : { date: event.date },
-    end: event.time
-      ? { dateTime: `${event.date}T${event.time}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-      : { date: event.date },
+    ...timePayload,
+  };
+
+  if (event.repeatEnabled && event.repeatPattern) {
+    const rruleMap: Record<string, string> = {
+      daily: "RRULE:FREQ=DAILY",
+      weekly: "RRULE:FREQ=WEEKLY",
+      monthly: "RRULE:FREQ=MONTHLY",
+    };
+    body.recurrence = [rruleMap[event.repeatPattern]];
+  }
+
+  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    console.error("Google Calendar Create Error:", await res.json());
+    return;
+  }
+
+  const data = await res.json();
+  return data.id;
+}
+
+export async function updateGoogleCalendarEvent(googleEventId: string, event: CalendarEvent) {
+  const accessToken = getAccessToken();
+  if (!accessToken) return;
+
+  const timePayload = buildGoogleTimePayload(event);
+  const body: any = {
+    summary: event.title,
+    description: event.description || "",
+    ...timePayload,
   };
 
   if (event.repeatEnabled && event.repeatPattern) {
@@ -121,46 +176,6 @@ export async function createGoogleCalendarEvent(event: CalendarEvent) {
   }
 
   const res = await fetch(
-    "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }
-  );
-
-  const data = await res.json();
-  return data.id; // return Google's event id
-}
-
-export async function updateGoogleCalendarEvent(googleEventId: string, event: CalendarEvent) {
-  const accessToken = getAccessToken();
-  if (!accessToken) return;
-
-  const body: any = {
-    summary: event.title,
-    description: event.description || "",
-    start: event.time
-      ? { dateTime: `${event.date}T${event.time}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-      : { date: event.date },
-    end: event.time
-      ? { dateTime: `${event.date}T${event.time}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-      : { date: event.date },
-  };
-
-  if (event.repeatEnabled && event.repeatPattern) {
-    const rruleMap: Record<string, string> = {
-      daily: "RRULE:FREQ=DAILY",
-      weekly: "RRULE:FREQ=WEEKLY",
-      monthly: "RRULE:FREQ=MONTHLY",
-    };
-    body.recurrence = [rruleMap[event.repeatPattern]];
-  }
-
-  await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`,
     {
       method: "PUT",
@@ -171,6 +186,10 @@ export async function updateGoogleCalendarEvent(googleEventId: string, event: Ca
       body: JSON.stringify(body),
     }
   );
+
+  if (!res.ok) {
+    console.error("Google Calendar Update Error:", await res.json());
+  }
 }
 
 export async function deleteGoogleCalendarEvent(googleEventId: string) {

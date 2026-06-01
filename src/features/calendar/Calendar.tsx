@@ -969,7 +969,7 @@ export const Calendar = () => {
   const deleteEvent = async (id: string) => {
     if (confirm("Delete this event?")) {
       const event = events.find((e) => e.id === id);
-      
+
       if (googleUser && event?.googleEventId) {
         await deleteGoogleCalendarEvent(event.googleEventId);
       }
@@ -981,22 +981,35 @@ export const Calendar = () => {
 
   const updateEvent = async (id: string, updates: Partial<CalendarEvent>) => {
     const existing = events.find((e) => e.id === id);
+    if (!existing) return;
+
     const updated = { ...existing, ...updates } as CalendarEvent;
 
     setEvents((prev) => prev.map((e) => (e.id === id ? updated : e)));
 
-    // ✅ sync to Google if connected and event has a Google ID
-    if (googleUser && updated.googleEventId) {
-      await updateGoogleCalendarEvent(updated.googleEventId, updated);
+    if (googleUser) {
+      try {
+        if (updated.googleEventId) {
+          await updateGoogleCalendarEvent(updated.googleEventId, updated);
+        } else {
+          const newGoogleId = await createGoogleCalendarEvent(updated);
+          if (newGoogleId) {
+            setEvents((prev) => 
+              prev.map((e) => (e.id === id ? { ...e, googleEventId: newGoogleId } : e))
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Failed to sync update to Google Calendar:", error);
+      }
     }
-
     if (updates.reminder !== undefined) {
       notificationService.removeRemindersForItem(id);
       if (updates.reminder) {
         notificationService.scheduleReminder({
           type: "event_reminder",
           title: `📅 Event Reminder: ${updated.title}`,
-          body: updates.description || existing?.description || `Upcoming: ${updated.title}`,
+          body: updates.description || existing.description || `Upcoming: ${updated.title}`,
           scheduledAt: new Date(updates.reminder).toISOString(),
           linkedId: id,
         });
