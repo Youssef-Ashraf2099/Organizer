@@ -119,6 +119,28 @@ const formatCalendarDate = (dateStr: string) =>
     year: "numeric",
   });
 
+const mergeGoogleEvents = (prevEvents: CalendarEvent[], googleEvents: CalendarEvent[]): CalendarEvent[] => {
+  const mergedEvents = [...prevEvents];
+  
+  googleEvents.forEach((gEvent) => {
+    const existingIndex = mergedEvents.findIndex(
+      (localEvent) => localEvent.googleEventId === gEvent.googleEventId
+    );
+
+    if (existingIndex >= 0) {
+      mergedEvents[existingIndex] = { 
+        ...mergedEvents[existingIndex], 
+        ...gEvent, 
+        id: mergedEvents[existingIndex].id 
+      };
+    } else {
+      mergedEvents.push(gEvent);
+    }
+  });
+
+  return mergedEvents;
+};
+
 const getUpcomingOccurrences = (
   events: CalendarEvent[],
   daysAhead: number,
@@ -742,8 +764,16 @@ export const Calendar = () => {
   const [isAddingEvent, setIsAddingEvent] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [googleUser, setGoogleUser] = useState<any>(null); 
+  const [googleUser, setGoogleUser] = useState<any>(null);
   const calendarImportRef = useRef<HTMLInputElement>(null);
+
+  const handleGoogleLogout = () => {
+    localStorage.removeItem("google_token");
+    
+    setGoogleUser(null);
+
+    setEvents((prev) => prev.filter((event) => !event.googleEventId));
+  };
 
   // Load events from localStorage on mount
   useEffect(() => {
@@ -761,16 +791,10 @@ export const Calendar = () => {
   useEffect(() => {
     async function checkAuth() {
       const user = await handleGoogleRedirect();
-      if (user) 
-      {
+      if (user) {
         setGoogleUser(user);
         const googleEvents = await fetchGoogleCalendarEvents();
-        setEvents((prev) => {
-        // avoid duplicates by id
-        const existingIds = new Set(prev.map((e) => e.id));
-        const newEvents = googleEvents.filter((e: any) => !existingIds.has(e.id));
-        return [...prev, ...newEvents];
-        });
+        setEvents((prev) => mergeGoogleEvents(prev, googleEvents));
       }
     }
     checkAuth();
@@ -780,13 +804,11 @@ export const Calendar = () => {
     async function loadIfConnected() {
       const raw = localStorage.getItem("google_token");
       if (!raw) return;
+      
       setGoogleUser(JSON.parse(raw));
+      
       const googleEvents = await fetchGoogleCalendarEvents();
-      setEvents((prev) => {
-        const existingIds = new Set(prev.map((e) => e.id));
-        const newEvents = googleEvents.filter((e: any) => !existingIds.has(e.id));
-        return [...prev, ...newEvents];
-      });
+      setEvents((prev) => mergeGoogleEvents(prev, googleEvents));
     }
     loadIfConnected();
   }, []);
@@ -1186,7 +1208,15 @@ export const Calendar = () => {
           </div>
         </div>
       </div>
-        {!googleUser && (
+        {googleUser ? (
+          <button
+            type="button"
+            onClick={handleGoogleLogout}
+            className="inline-flex items-center gap-2 rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:border-red-800 hover:bg-red-900/50"
+          >
+            Disconnect Google
+          </button>
+        ) : (
           <button
             type="button"
             onClick={() => loginWithGoogle()}
