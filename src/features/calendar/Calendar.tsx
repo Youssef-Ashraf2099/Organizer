@@ -9,6 +9,7 @@ import { FaTimes } from "@react-icons/all-files/fa/FaTimes";
 import { FaCalendarAlt } from "@react-icons/all-files/fa/FaCalendarAlt";
 import { jsPDF } from "jspdf";
 import { notificationService } from "../../core/services/notificationService";
+import { loginWithGoogle, handleGoogleRedirect, fetchGoogleCalendarEvents, createGoogleCalendarEvent, updateGoogleCalendarEvent, deleteGoogleCalendarEvent } from "../../auth/googleAuth";
 
 type RepeatPattern = "daily" | "weekly" | "monthly";
 
@@ -20,6 +21,7 @@ const REPEAT_PATTERNS: { value: RepeatPattern; label: string }[] = [
 
 export type CalendarEvent = {
   id: string;
+  googleEventId?: string;
   title: string;
   date: string; // YYYY-MM-DD
   time?: string; // HH:MM
@@ -116,6 +118,28 @@ const formatCalendarDate = (dateStr: string) =>
     day: "numeric",
     year: "numeric",
   });
+
+const mergeGoogleEvents = (prevEvents: CalendarEvent[], googleEvents: CalendarEvent[]): CalendarEvent[] => {
+  const mergedEvents = [...prevEvents];
+  
+  googleEvents.forEach((gEvent) => {
+    const existingIndex = mergedEvents.findIndex(
+      (localEvent) => localEvent.googleEventId === gEvent.googleEventId
+    );
+
+    if (existingIndex >= 0) {
+      mergedEvents[existingIndex] = { 
+        ...mergedEvents[existingIndex], 
+        ...gEvent, 
+        id: mergedEvents[existingIndex].id 
+      };
+    } else {
+      mergedEvents.push(gEvent);
+    }
+  });
+
+  return mergedEvents;
+};
 
 const getUpcomingOccurrences = (
   events: CalendarEvent[],
@@ -740,7 +764,16 @@ export const Calendar = () => {
   const [isAddingEvent, setIsAddingEvent] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [googleUser, setGoogleUser] = useState<any>(null);
   const calendarImportRef = useRef<HTMLInputElement>(null);
+
+  const handleGoogleLogout = () => {
+    localStorage.removeItem("google_token");
+    
+    setGoogleUser(null);
+
+    setEvents((prev) => prev.filter((event) => !event.googleEventId));
+  };
 
   // Load events from localStorage on mount
   useEffect(() => {
@@ -753,6 +786,31 @@ export const Calendar = () => {
       console.log("📅 No saved events found");
     }
     setIsInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    async function checkAuth() {
+      const user = await handleGoogleRedirect();
+      if (user) {
+        setGoogleUser(user);
+        const googleEvents = await fetchGoogleCalendarEvents();
+        setEvents((prev) => mergeGoogleEvents(prev, googleEvents));
+      }
+    }
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    async function loadIfConnected() {
+      const raw = localStorage.getItem("google_token");
+      if (!raw) return;
+      
+      setGoogleUser(JSON.parse(raw));
+      
+      const googleEvents = await fetchGoogleCalendarEvents();
+      setEvents((prev) => mergeGoogleEvents(prev, googleEvents));
+    }
+    loadIfConnected();
   }, []);
 
   // Save events to localStorage whenever they change (after initial load)
@@ -908,12 +966,17 @@ export const Calendar = () => {
     return checkDate < today;
   };
 
-  const addEvent = (event: Omit<CalendarEvent, "id">) => {
+  const addEvent = async (event: Omit<CalendarEvent, "id">) => {
     const newId = crypto.randomUUID();
     const newEvent = { ...event, id: newId };
-    setEvents([...events, newEvent]);
 
-    // Schedule notification if reminder is set
+    if (googleUser) {
+      const googleEventId = await createGoogleCalendarEvent(newEvent);
+      if (googleEventId) newEvent.googleEventId = googleEventId;
+    }
+
+    setEvents((prev) => [...prev, newEvent]);
+
     if (event.reminder) {
       notificationService.scheduleReminder({
         type: "event_reminder",
@@ -925,27 +988,50 @@ export const Calendar = () => {
     }
   };
 
-  const deleteEvent = (id: string) => {
+  const deleteEvent = async (id: string) => {
     if (confirm("Delete this event?")) {
+      const event = events.find((e) => e.id === id);
+
+      if (googleUser && event?.googleEventId) {
+        await deleteGoogleCalendarEvent(event.googleEventId);
+      }
+
       notificationService.removeRemindersForItem(id);
-      setEvents(events.filter((e) => e.id !== id));
+      setEvents((prev) => prev.filter((e) => e.id !== id));
     }
   };
 
-  const updateEvent = (id: string, updates: Partial<CalendarEvent>) => {
-    setEvents(events.map((e) => (e.id === id ? { ...e, ...updates } : e)));
+  const updateEvent = async (id: string, updates: Partial<CalendarEvent>) => {
+    const existing = events.find((e) => e.id === id);
+    if (!existing) return;
 
-    // Re-schedule notification if reminder changed
+    const updated = { ...existing, ...updates } as CalendarEvent;
+
+    setEvents((prev) => prev.map((e) => (e.id === id ? updated : e)));
+
+    if (googleUser) {
+      try {
+        if (updated.googleEventId) {
+          await updateGoogleCalendarEvent(updated.googleEventId, updated);
+        } else {
+          const newGoogleId = await createGoogleCalendarEvent(updated);
+          if (newGoogleId) {
+            setEvents((prev) => 
+              prev.map((e) => (e.id === id ? { ...e, googleEventId: newGoogleId } : e))
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Failed to sync update to Google Calendar:", error);
+      }
+    }
     if (updates.reminder !== undefined) {
       notificationService.removeRemindersForItem(id);
       if (updates.reminder) {
-        const event = events.find((e) => e.id === id);
-        const title = updates.title || event?.title || "Event";
         notificationService.scheduleReminder({
           type: "event_reminder",
-          title: `📅 Event Reminder: ${title}`,
-          body:
-            updates.description || event?.description || `Upcoming: ${title}`,
+          title: `📅 Event Reminder: ${updated.title}`,
+          body: updates.description || existing.description || `Upcoming: ${updated.title}`,
           scheduledAt: new Date(updates.reminder).toISOString(),
           linkedId: id,
         });
@@ -1122,6 +1208,23 @@ export const Calendar = () => {
           </div>
         </div>
       </div>
+        {googleUser ? (
+          <button
+            type="button"
+            onClick={handleGoogleLogout}
+            className="inline-flex items-center gap-2 rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:border-red-800 hover:bg-red-900/50"
+          >
+            Disconnect Google
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => loginWithGoogle()}
+            className="inline-flex items-center gap-2 rounded-xl border border-zinc-700/60 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          >
+            Connect Google Calendar
+          </button>
+        )}
 
       {/* Calendar Grid */}
       <div className="flex-1 p-3">
